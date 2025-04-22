@@ -36,7 +36,6 @@ app.get("/webhook", (req, res) => {
 // Handle incoming messages
 app.post("/webhook", async (req, res) => {
     const body = req.body;
-
     console.log("📩 Received webhook event:");
 
     const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
@@ -46,7 +45,7 @@ app.post("/webhook", async (req, res) => {
     if (body.object && message && metadata && contact) {
         const phoneNumberId = metadata.phone_number_id;
         const sender = message.from;
-        const text = message.text?.body || "";
+        const text = message.text?.body?.trim().toLowerCase() || "";
         const senderName = contact.profile?.name || "Unknown";
 
         console.log("📞 Phone number ID:", phoneNumberId);
@@ -55,8 +54,8 @@ app.post("/webhook", async (req, res) => {
         console.log("📛 Sender name:", senderName);
 
         try {
-            // Send template reply if message is "hello"
-            if (text.toLowerCase() === "hello") {
+            if (text === "hello") {
+                // Only send template message for "hello"
                 const templateResponse = await axios.post(
                     `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
                     {
@@ -88,32 +87,33 @@ app.post("/webhook", async (req, res) => {
                         }
                     }
                 );
-                res.sendStatus(200);
+
                 console.log("✅ Template message sent:", templateResponse.data);
+                return res.sendStatus(200); // Exit after template message
+            } else {
+                // Send fallback response for all other messages
+                const textResponse = await axios.post(
+                    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+                    {
+                        messaging_product: "whatsapp",
+                        to: sender,
+                        text: {
+                            body: `Hi.. I'm Vikas, your message is: "${text}"`
+                        }
+                    },
+                    {
+                        headers: {
+                            "Content-Type": "application/json"
+                        }
+                    }
+                );
+
+                console.log("✅ Text message sent:", textResponse.data);
+                return res.sendStatus(200);
             }
-
-            // Send fallback/default text message
-            const textResponse = await axios.post(
-                `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-                {
-                    messaging_product: "whatsapp",
-                    to: sender,
-                    text: {
-                        body: `Hi.. I'm Vikas, your message is: "${text}"`
-                    }
-                },
-                {
-                    headers: {
-                        "Content-Type": "application/json"
-                    }
-                }
-            );
-
-            console.log("✅ Text message sent:", textResponse.data);
-            res.sendStatus(200);
         } catch (error) {
             console.error("❌ Error sending message:", error.response?.data || error.message);
-            res.sendStatus(500);
+            return res.sendStatus(500);
         }
     } else {
         console.warn("⚠️ No valid message found in webhook event");
