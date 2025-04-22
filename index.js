@@ -88,7 +88,7 @@ app.post("/webhook", async (req, res) => {
                         }
                     }
                 );
-
+                res.sendStatus(200);
                 console.log("✅ Template message sent:", templateResponse.data);
             }
 
