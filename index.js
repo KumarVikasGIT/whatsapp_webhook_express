@@ -63,7 +63,7 @@ app.post("/webhook", async (req, res) => {
                     messaging_product: "whatsapp",
                     to: sender,
                     text: {
-                        body: `Hi.. I'm Prasath, your message is: "${text}"`
+                        body: `Hi.. I'm Vikas, your message is: "${text}"`
                     }
                 },
                 headers: {
