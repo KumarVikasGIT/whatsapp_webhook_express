@@ -43,126 +43,100 @@ app.post("/webhook", async (req, res) => {
     const metadata = body.entry?.[0]?.changes?.[0]?.value?.metadata;
     const contact = body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0];
 
-    if (body.object && message && metadata && contact) {
-        const phoneNumberId = metadata.phone_number_id;
-        const sender = message.from;
-        const text = message.text?.body?.trim().toLowerCase() || "";
-        const senderName = contact.profile?.name || "Unknown";
+    if (!body.object || !message || !metadata || !contact) {
+        console.warn("⚠️ Invalid webhook structure");
+        return res.sendStatus(404);
+    }
 
-        console.log("📞 Phone number ID:", phoneNumberId);
-        console.log("👤 Sender:", sender);
-        console.log("🧾 Message body:", text);
-        console.log("📛 Sender name:", senderName);
+    const phoneNumberId = metadata.phone_number_id;
+    const sender = message.from;
+    const text = message.text?.body?.trim() || "";
+    const lowerText = text.toLowerCase();
+    const senderName = contact.profile?.name || "Unknown";
 
-        try {
+    console.log("📞 Phone number ID:", phoneNumberId);
+    console.log("👤 Sender:", sender);
+    console.log("🧾 Message body:", text);
+    console.log("📛 Sender name:", senderName);
 
-            if(pattern.test(text)) {
-                // Send fallback response for all other messages
-                const textResponse = await axios.post(
-                    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-                    {
-                        messaging_product: "whatsapp",
-                        to: sender,
-                        text: {
-                            body: `Order Details\nOrder id: ${text} .... please choose an option to continue.`
-                        }
-                    },
-                    {
-                        headers: {
-                            "Content-Type": "application/json"
-                        }
+    // RegEx pattern for Order ID
+    const orderPattern = /^SRVZ-ORD-\d{6}$/i;
+
+    try {
+        if (lowerText === "hello") {
+            // 🔹 Send template message if user says "hello"
+            const templateResponse = await axios.post(
+                `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+                {
+                    messaging_product: "whatsapp",
+                    recipient_type: "individual",
+                    to: sender,
+                    type: "template",
+                    template: {
+                        name: "test1",
+                        language: { code: "en_US" },
+                        components: [
+                            {
+                                type: "body",
+                                parameters: [
+                                    {
+                                        type: "text",
+                                        text: senderName
+                                    }
+                                ]
+                            }
+                        ]
                     }
-                );
+                },
+                {
+                    headers: { "Content-Type": "application/json" }
+                }
+            );
 
-                console.log("✅ Text message sent:", textResponse.data);
-                return res.sendStatus(200);
-            } 
-            // else {
-            //     // Send fallback response for all other messages
-            //     const textResponse = await axios.post(
-            //         `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-            //         {
-            //             messaging_product: "whatsapp",
-            //             to: sender,
-            //             text: {
-            //                 body: `Please enter a valid Order id.`
-            //             }
-            //         },
-            //         {
-            //             headers: {
-            //                 "Content-Type": "application/json"
-            //             }
-            //         }
-            //     );
-
-            //     console.log("✅ Text message sent:", textResponse.data);
-            //     return res.sendStatus(200);
-            // }
-
-            // if (text === "hello") {
-            //     // Only send template message for "hello"
-            //     const templateResponse = await axios.post(
-            //         `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-            //         {
-            //             messaging_product: "whatsapp",
-            //             recipient_type: "individual",
-            //             to: sender,
-            //             type: "template",
-            //             template: {
-            //                 name: "test1",
-            //                 language: {
-            //                     code: "en_US"
-            //                 },
-            //                 components: [
-            //                     {
-            //                         type: "body",
-            //                         parameters: [
-            //                             {
-            //                                 type: "text",
-            //                                 text: senderName
-            //                             }
-            //                         ]
-            //                     }
-            //                 ]
-            //             }
-            //         },
-            //         {
-            //             headers: {
-            //                 "Content-Type": "application/json"
-            //             }
-            //         }
-            //     );
-
-            //     console.log("✅ Template message sent:", templateResponse.data);
-            //     return res.sendStatus(200); // Exit after template message
-            // } else {
-                // Send fallback response for all other messages
-                const textResponse = await axios.post(
-                    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-                    {
-                        messaging_product: "whatsapp",
-                        to: sender,
-                        text: {
-                            body: `Hi ${sender}, you have currently 6 jobs pending\nPlease enter order id to see details.\n\nThank you.`
-                        }
-                    },
-                    {
-                        headers: {
-                            "Content-Type": "application/json"
-                        }
-                    }
-                );
-
-                console.log("✅ Text message sent:", textResponse.data);
-                return res.sendStatus(200);
-            // }
-        } catch (error) {
-            console.error("❌ Error sending message:", error.response?.data || error.message);
-            return res.sendStatus(500);
+            console.log("✅ Template message sent:", templateResponse.data);
+            return res.sendStatus(200);
         }
-    } else {
-        console.warn("⚠️ No valid message found in webhook event");
-        res.sendStatus(404);
+
+        if (orderPattern.test(text)) {
+            // 🔹 Handle order ID messages
+            const orderResponse = await axios.post(
+                `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+                {
+                    messaging_product: "whatsapp",
+                    to: sender,
+                    text: {
+                        body: `📦 Order Details\n🆔 Order ID: ${text}\n\nPlease choose an option to continue.`
+                    }
+                },
+                {
+                    headers: { "Content-Type": "application/json" }
+                }
+            );
+
+            console.log("✅ Order message sent:", orderResponse.data);
+            return res.sendStatus(200);
+        }
+
+        // 🔹 Fallback message for any other input
+        const fallbackResponse = await axios.post(
+            `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+            {
+                messaging_product: "whatsapp",
+                to: sender,
+                text: {
+                    body: `👋 Hi ${senderName}, you currently have 6 jobs pending.\nPlease enter a valid order ID (e.g., SRVZ-ORD-123456) to view details.\n\nThank you!`
+                }
+            },
+            {
+                headers: { "Content-Type": "application/json" }
+            }
+        );
+
+        console.log("✅ Fallback message sent:", fallbackResponse.data);
+        res.sendStatus(200);
+    } catch (error) {
+        console.error("❌ Error sending message:", error.response?.data || error.message);
+        res.sendStatus(500);
     }
 });
 
