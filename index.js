@@ -8,6 +8,7 @@ app.use(bodyParser.json());
 
 const token = process.env.TOKEN;
 const verifyToken = process.env.MYTOKEN;
+const pattern = /^SRVZ-ORD-\d{6}$/;
 
 const PORT = process.env.PORT || 3000;
 
@@ -54,43 +55,8 @@ app.post("/webhook", async (req, res) => {
         console.log("📛 Sender name:", senderName);
 
         try {
-            if (text === "hello") {
-                // Only send template message for "hello"
-                const templateResponse = await axios.post(
-                    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-                    {
-                        messaging_product: "whatsapp",
-                        recipient_type: "individual",
-                        to: sender,
-                        type: "template",
-                        template: {
-                            name: "test1",
-                            language: {
-                                code: "en_US"
-                            },
-                            components: [
-                                {
-                                    type: "body",
-                                    parameters: [
-                                        {
-                                            type: "text",
-                                            text: senderName
-                                        }
-                                    ]
-                                }
-                            ]
-                        }
-                    },
-                    {
-                        headers: {
-                            "Content-Type": "application/json"
-                        }
-                    }
-                );
 
-                console.log("✅ Template message sent:", templateResponse.data);
-                return res.sendStatus(200); // Exit after template message
-            } else {
+            if(pattern.test(text)) {
                 // Send fallback response for all other messages
                 const textResponse = await axios.post(
                     `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
@@ -98,7 +64,7 @@ app.post("/webhook", async (req, res) => {
                         messaging_product: "whatsapp",
                         to: sender,
                         text: {
-                            body: `Hi.. I'm Vikas, your message is: "${text}"`
+                            body: `Order Details\nOrder id: ${text} .... please choose an option to continue.`
                         }
                     },
                     {
@@ -110,7 +76,86 @@ app.post("/webhook", async (req, res) => {
 
                 console.log("✅ Text message sent:", textResponse.data);
                 return res.sendStatus(200);
-            }
+            } 
+            // else {
+            //     // Send fallback response for all other messages
+            //     const textResponse = await axios.post(
+            //         `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+            //         {
+            //             messaging_product: "whatsapp",
+            //             to: sender,
+            //             text: {
+            //                 body: `Please enter a valid Order id.`
+            //             }
+            //         },
+            //         {
+            //             headers: {
+            //                 "Content-Type": "application/json"
+            //             }
+            //         }
+            //     );
+
+            //     console.log("✅ Text message sent:", textResponse.data);
+            //     return res.sendStatus(200);
+            // }
+
+            // if (text === "hello") {
+            //     // Only send template message for "hello"
+            //     const templateResponse = await axios.post(
+            //         `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+            //         {
+            //             messaging_product: "whatsapp",
+            //             recipient_type: "individual",
+            //             to: sender,
+            //             type: "template",
+            //             template: {
+            //                 name: "test1",
+            //                 language: {
+            //                     code: "en_US"
+            //                 },
+            //                 components: [
+            //                     {
+            //                         type: "body",
+            //                         parameters: [
+            //                             {
+            //                                 type: "text",
+            //                                 text: senderName
+            //                             }
+            //                         ]
+            //                     }
+            //                 ]
+            //             }
+            //         },
+            //         {
+            //             headers: {
+            //                 "Content-Type": "application/json"
+            //             }
+            //         }
+            //     );
+
+            //     console.log("✅ Template message sent:", templateResponse.data);
+            //     return res.sendStatus(200); // Exit after template message
+            // } else {
+                // Send fallback response for all other messages
+                const textResponse = await axios.post(
+                    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+                    {
+                        messaging_product: "whatsapp",
+                        to: sender,
+                        text: {
+                            body: `Hi ${sender}, you have currently 6 jobs pending\nPlease enter order id to see details.\n\nThank you.`
+                        }
+                    },
+                    {
+                        headers: {
+                            "Content-Type": "application/json"
+                        }
+                    }
+                );
+
+                console.log("✅ Text message sent:", textResponse.data);
+                return res.sendStatus(200);
+            // }
         } catch (error) {
             console.error("❌ Error sending message:", error.response?.data || error.message);
             return res.sendStatus(500);
