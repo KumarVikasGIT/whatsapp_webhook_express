@@ -69,7 +69,7 @@ app.post("/webhook", async (req, res) => {
 
         if (messageType==="interactive") {
 
-            if(pattern2.test(message?.interactive?.list_reply?.title))
+            if(pattern2.test(message?.interactive?.list_reply?.id))
 {
     const orderResponse = await axios.post(
         `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
@@ -157,19 +157,7 @@ app.post("/webhook", async (req, res) => {
                             text: `Order ID: ${message?.interactive?.list_reply?.title}`
                         },
                         body: {
-                            text: `📦 Order Details\n\n🆔 
-                            Current Status: Technician Assigned\n
-                            Schedule time: 12 July 2023, 12:22\n
-                            \n
-                            Appliance Details\n
-                            Category: Air Conditionar\n
-                            Subcategory: Split AC\n
-                            Issue: Not cooling\n
-                            \n
-                            Customer Detais\n
-                            Name:Vikas Kumar\n
-                            Address: Delhi\n
-                            Contact number: 8826095638`
+                            text: `📦 Order Details\n\n🆔 Current Status: Technician Assigned\nSchedule time: 12 July 2023, 12:22\n\nAppliance Details\nCategory: Air Conditionar\nSubcategory: Split AC\nIssue: Not cooling\n\nCustomer Detais\nName:Vikas Kumar\nAddress: Delhi\nContact number: 8826095638`
                         },
                         footer: {
                             text: "Click to more option to Accept, Reject or Change Status"
