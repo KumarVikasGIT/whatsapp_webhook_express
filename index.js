@@ -8,7 +8,7 @@ app.use(bodyParser.json());
 
 const token = process.env.TOKEN;
 const verifyToken = process.env.MYTOKEN;
-const pattern = /^SRVZ-ORD-\d{6}$/;
+const pattern2= /^accept\d+$/;
 
 const PORT = process.env.PORT || 3000;
 
@@ -69,6 +69,22 @@ app.post("/webhook", async (req, res) => {
 
         if (messageType==="interactive") {
 
+            if(pattern2.test(message?.interactive?.list_reply?.title))
+{
+    const orderResponse = await axios.post(
+        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+        {
+            messaging_product: "whatsapp",
+            to: sender,
+            text: {
+                body: `We got your request and opdated your order status...\nPlease message "Hello" or "Hi" to start new conversation`
+            }
+        },
+        {
+            headers: { "Content-Type": "application/json" }
+        }
+         );
+}
             if(!orderPattern.test(message?.interactive?.list_reply?.title)){
                 const fallbackResponse = await axios.post(
                     `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
@@ -127,21 +143,67 @@ app.post("/webhook", async (req, res) => {
 
            if(orderPattern.test(message?.interactive?.list_reply?.title)){
              // 🔹 Handle order ID messages
-             const orderResponse = await axios.post(
+            const fallbackResponse = await axios.post(
                 `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
                 {
                     messaging_product: "whatsapp",
-                    to: sender,
-                    text: {
-                        body: `📦 Order Details\n🆔 Order ID: ${text}\n\nPlease choose an option to continue.`
+                    recipient_type: "individual",
+                    to: "918826095638",
+                    type: "interactive",
+                    interactive: {
+                        type: "list",
+                        header: {
+                            type: "text",
+                            text: `Order ID: ${message?.interactive?.list_reply?.title}`
+                        },
+                        body: {
+                            text: `📦 Order Details\n\n🆔 
+                            Current Status: Technician Assigned\n
+                            Schedule time: 12 July 2023, 12:22\n
+                            \n
+                            Appliance Details\n
+                            Category: Air Conditionar\n
+                            Subcategory: Split AC\n
+                            Issue: Not cooling\n
+                            \n
+                            Customer Detais\n
+                            Name:Vikas Kumar\n
+                            Address: Delhi\n
+                            Contact number: 8826095638`
+                        },
+                        footer: {
+                            text: "Click to more option to Accept, Reject or Change Status"
+    },
+                        action: {
+                            button: "More Options",
+                            sections: [
+                                {
+                                    title: "Your Options",
+                                    rows: [
+                                        {
+                                            id: "accept1",
+                                            title: "Accept Order",
+                                            description: "After acceptiong order this order added to your portfolio and you can start your work."
+                                        },
+                                        {
+                                            id: "accept2",
+                                            title: "Reject Order",
+                                            description: "You have no longer access to this order."
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
                     }
                 },
                 {
-                    headers: { "Content-Type": "application/json" }
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
                 }
             );
 
-            console.log("✅ Order message sent:", orderResponse.data);
+            console.log("✅ Order message sent:", fallbackResponse.data);
             return res.sendStatus(200);
            }
 
@@ -157,7 +219,7 @@ app.post("/webhook", async (req, res) => {
             {
                 headers: { "Content-Type": "application/json" }
             }
-        );
+             );
 
         console.log("✅ Order message sent:", orderResponse.data);
         return res.sendStatus(200);
@@ -182,7 +244,7 @@ app.post("/webhook", async (req, res) => {
                         text: "Please select an option to continue"
                     },
                     action: {
-                        button: "View Orders",
+                        button: "Get Orders by Status",
                         sections: [
                             {
                                 title: "Your Options",
