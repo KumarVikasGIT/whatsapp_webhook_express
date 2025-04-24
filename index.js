@@ -183,7 +183,7 @@ app.post("/webhook", async (req, res) => {
                                         {
                                             id: "accept1",
                                             title: "Accept Order",
-                                            description: "After acceptiong order this order added to your portfolio and you can start your work."
+                                            description: "You can start your work."
                                         },
                                         {
                                             id: "accept2",
