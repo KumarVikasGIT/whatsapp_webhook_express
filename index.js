@@ -8,272 +8,188 @@ app.use(bodyParser.json());
 
 const token = process.env.TOKEN;
 const verifyToken = process.env.MYTOKEN;
-const pattern2= /^accept\d+$/;
-
+const orderPattern = /^SRVZ-ORD-\d{6}$/i;
+const actionPattern = /^accept\d+$/;
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
     console.log(`Webhook server is listening on port ${PORT}`);
 });
 
-// Verify the webhook setup (for Facebook/Meta Cloud API)
+// Verify the webhook setup
 app.get("/webhook", (req, res) => {
     const mode = req.query["hub.mode"];
     const challenge = req.query["hub.challenge"];
     const token = req.query["hub.verify_token"];
 
-    if (mode && token) {
-        if (mode === "subscribe" && token === verifyToken) {
-            console.log("Webhook verified successfully.");
-            return res.status(200).send(challenge);
-        } else {
-            console.warn("Webhook verification failed: Token mismatch");
-            return res.sendStatus(403);
-        }
+    if (mode && token && mode === "subscribe" && token === verifyToken) {
+        console.log("Webhook verified successfully.");
+        return res.status(200).send(challenge);
     }
+    console.warn("Webhook verification failed.");
     res.sendStatus(403);
 });
 
 // Handle incoming messages
 app.post("/webhook", async (req, res) => {
     const body = req.body;
-    console.log("📩 Received webhook event:");
+    console.log("📩 Received webhook event:", JSON.stringify(body, null, 2));
 
-    const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    const metadata = body.entry?.[0]?.changes?.[0]?.value?.metadata;
-    const contact = body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0];
-    const messageType = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0].type;
+    const entry = body.entry?.[0]?.changes?.[0]?.value;
+    const message = entry?.messages?.[0];
+    const metadata = entry?.metadata;
+    const contact = entry?.contacts?.[0];
+    const messageType = message?.type;
 
     if (!body.object || !message || !metadata || !contact) {
         console.warn("⚠️ Invalid webhook structure");
-        console.warn(body);
         return res.sendStatus(404);
     }
 
     const phoneNumberId = metadata.phone_number_id;
     const sender = message.from;
-    const text = message.text?.body?.trim() || "";
-    const lowerText = text.toLowerCase();
     const senderName = contact.profile?.name || "Unknown";
 
-    console.log("📞 Phone number ID:", phoneNumberId);
-    console.log("👤 Sender:", sender);
-    console.log("🧾 Message body:", text);
-    console.log("📛 Sender name:", senderName);
-    console.log("📛 Message Type:", messageType);
-
-    // RegEx pattern for Order ID
-    const orderPattern = /^SRVZ-ORD-\d{6}$/i;
-
     try {
+        if (messageType === "interactive") {
+            const listReply = message?.interactive?.list_reply;
+            const replyId = listReply?.id;
+            const replyTitle = listReply?.title;
 
-        if (messageType==="interactive") {
-
-            if(pattern2.test(message?.interactive?.list_reply?.id))
-{
-    const orderResponse = await axios.post(
-        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-        {
-            messaging_product: "whatsapp",
-            to: sender,
-            text: {
-                body: `We got your request and opdated your order status...\nPlease message "Hello" or "Hi" to start new conversation`
-            }
-        },
-        {
-            headers: { "Content-Type": "application/json" }
-        }
-         );
-}
-            if(!orderPattern.test(message?.interactive?.list_reply?.title)){
-                const fallbackResponse = await axios.post(
-                    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-                    {
-                        messaging_product: "whatsapp",
-                        recipient_type: "individual",
-                        to: sender,
-                        type: "interactive",
-                        interactive: {
-                            type: "list",
-                            header: {
-                                type: "text",
-                                text: message?.interactive?.list_reply?.title
-                            },
-                            body: {
-                                text: `Here are the list of order that are ${message?.interactive?.list_reply?.title} click below to get more about the order.`
-                            },
-                            action: {
-                                button: "View Orders",
-                                sections: [
-                                    {
-                                        title: message?.interactive?.list_reply?.title,
-                                        rows: [
-                                            {
-                                                id: "orderID",
-                                                title: "SRVZ-ORD-738762",
-                                                description: "Order Assigned"
-                                            },
-                                            {
-                                                id: "orderID1",
-                                                title: "SRVZ-ORD-738800",
-                                                description: "Order Assigned"
-                                            },
-                                            {
-                                                id: "orderID2",
-                                                title: "SRVZ-ORD-738800",
-                                                description: "Order Assigned"
-                                            },
-                                        ]
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    {
-                        headers: {
-                            "Content-Type": "application/json"
-                        }
-                    }
-                );
-                
-        
-                console.log("✅ Fallback message sent:", fallbackResponse.data);
-                res.sendStatus(200);
+            // Action Handler (e.g. accept1)
+            if (actionPattern.test(replyId)) {
+                await sendTextMessage(phoneNumberId, sender, `We got your request and updated your order status...\nPlease message \"Hello\" or \"Hi\" to start a new conversation.`);
+                return res.sendStatus(200);
             }
 
-           if(orderPattern.test(message?.interactive?.list_reply?.title)){
-             // 🔹 Handle order ID messages
-            const fallbackResponse = await axios.post(
-                `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-                {
-                    messaging_product: "whatsapp",
-                    recipient_type: "individual",
-                    to: "918826095638",
-                    type: "interactive",
-                    interactive: {
-                        type: "list",
-                        header: {
-                            type: "text",
-                            text: `Order ID: ${message?.interactive?.list_reply?.title}`
-                        },
-                        body: {
-                            text: `📦 Order Details\n\n🆔 Current Status: Technician Assigned\nSchedule time: 12 July 2023, 12:22\n\nAppliance Details\nCategory: Air Conditionar\nSubcategory: Split AC\nIssue: Not cooling\n\nCustomer Detais\nName:Vikas Kumar\nAddress: Delhi\nContact number: 8826095638`
-                        },
-                        footer: {
-                            text: "Click to more option to Accept, Reject or Change Status"
-    },
-                        action: {
-                            button: "More Options",
-                            sections: [
-                                {
-                                    title: "Your Options",
-                                    rows: [
-                                        {
-                                            id: "accept1",
-                                            title: "Accept Order",
-                                            description: "You can start your work."
-                                        },
-                                        {
-                                            id: "accept2",
-                                            title: "Reject Order",
-                                            description: "You have no longer access to this order."
-                                        }
-                                    ]
-                                }
-                            ]
-                        }
-                    }
-                },
-                {
-                    headers: {
-                        "Content-Type": "application/json"
-                    }
-                }
-            );
+            // Order ID Handler
+            if (orderPattern.test(replyTitle)) {
+                await sendInteractiveOrderDetails(phoneNumberId, sender, replyTitle);
+                return res.sendStatus(200);
+            }
 
-            console.log("✅ Order message sent:", fallbackResponse.data);
+            // Order Status Section Response
+            await sendInteractiveOrderList(phoneNumberId, sender, replyTitle);
             return res.sendStatus(200);
-           }
-
-           const orderResponse = await axios.post(
-            `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-            {
-                messaging_product: "whatsapp",
-                to: sender,
-                text: {
-                    body: `It seems your option is invalid`
-                }
-            },
-            {
-                headers: { "Content-Type": "application/json" }
-            }
-             );
-
-        console.log("✅ Order message sent:", orderResponse.data);
-        return res.sendStatus(200);
-    
         }
 
-        // 🔹 Fallback message for any other input
-        const fallbackResponse = await axios.post(
-            `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-            {
-                messaging_product: "whatsapp",
-                recipient_type: "individual",
-                to: "918826095638",
-                type: "interactive",
-                interactive: {
-                    type: "list",
-                    header: {
-                        type: "text",
-                        text: `Hi ${sender}, welcome to SERVIZ Technician BOT.`
-                    },
-                    body: {
-                        text: "Please select an option to continue"
-                    },
-                    action: {
-                        button: "Get Orders by Status",
-                        sections: [
-                            {
-                                title: "Your Options",
-                                rows: [
-                                    {
-                                        id: "pendingOrders",
-                                        title: "Pending Orders",
-                                        description: "Orders not started yet."
-                                    },
-                                    {
-                                        id: "wipOrders",
-                                        title: "WIP Orders",
-                                        description: "Orders started and pending."
-                                    },
-                                    {
-                                        id: "completedOrders",
-                                        title: "Completed Orders",
-                                        description: "Orders that are completed recently."
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                }
-            },
-            {
-                headers: {
-                    "Content-Type": "application/json"
-                }
-            }
-        );
-        
-
-        console.log("✅ Fallback message sent:", fallbackResponse.data);
+        // Fallback for non-interactive messages
+        await sendInteractiveOptions(phoneNumberId, sender);
         res.sendStatus(200);
+
     } catch (error) {
         console.error("❌ Error sending message:", error.response?.data || error.message);
         res.sendStatus(500);
     }
 });
 
+// Utilities
+const sendTextMessage = async (phoneNumberId, to, message) => {
+    await axios.post(
+        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+        {
+            messaging_product: "whatsapp",
+            to,
+            text: { body: message }
+        },
+        { headers: { "Content-Type": "application/json" } }
+    );
+};
+
+const sendInteractiveOrderList = async (phoneNumberId, to, title) => {
+    await axios.post(
+        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+        {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to,
+            type: "interactive",
+            interactive: {
+                type: "list",
+                header: { type: "text", text: title },
+                body: { text: `Here are the orders that are ${title}. Click below to get more details.` },
+                action: {
+                    button: "View Orders",
+                    sections: [
+                        {
+                            title,
+                            rows: [
+                                { id: "orderID", title: "SRVZ-ORD-738762", description: "Order Assigned" },
+                                { id: "orderID1", title: "SRVZ-ORD-738800", description: "Order Assigned" },
+                                { id: "orderID2", title: "SRVZ-ORD-738801", description: "Order Assigned" },
+                            ]
+                        }
+                    ]
+                }
+            }
+        },
+        { headers: { "Content-Type": "application/json" } }
+    );
+};
+
+const sendInteractiveOrderDetails = async (phoneNumberId, to, orderId) => {
+    await axios.post(
+        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+        {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to,
+            type: "interactive",
+            interactive: {
+                type: "list",
+                header: { type: "text", text: `Order ID: ${orderId}` },
+                body: {
+                    text: `📦 Order Details\n\n🆔 Current Status: Technician Assigned\n📅 Schedule: 12 July 2023, 12:22\n\n🔧 Appliance\n• Category: Air Conditioner\n• Subcategory: Split AC\n• Issue: Not cooling\n\n👤 Customer\n• Name: Vikas Kumar\n• Address: Delhi\n• Phone: 8826095638`
+                },
+                footer: { text: "Click for more options to Accept, Reject or Change Status" },
+                action: {
+                    button: "More Options",
+                    sections: [
+                        {
+                            title: "Your Options",
+                            rows: [
+                                { id: "accept1", title: "Accept Order", description: "Start your work." },
+                                { id: "accept2", title: "Reject Order", description: "Release this order." }
+                            ]
+                        }
+                    ]
+                }
+            }
+        },
+        { headers: { "Content-Type": "application/json" } }
+    );
+};
+
+const sendInteractiveOptions = async (phoneNumberId, to) => {
+    await axios.post(
+        `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+        {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to,
+            type: "interactive",
+            interactive: {
+                type: "list",
+                header: { type: "text", text: `Hi ${to}, welcome to SERVIZ Technician BOT.` },
+                body: { text: "Please select an option to continue" },
+                action: {
+                    button: "Get Orders by Status",
+                    sections: [
+                        {
+                            title: "Your Options",
+                            rows: [
+                                { id: "pendingOrders", title: "Pending Orders", description: "Not started yet." },
+                                { id: "wipOrders", title: "WIP Orders", description: "In progress." },
+                                { id: "completedOrders", title: "Completed Orders", description: "Recently completed." }
+                            ]
+                        }
+                    ]
+                }
+            }
+        },
+        { headers: { "Content-Type": "application/json" } }
+    );
+};
 
 // Default route
 app.get("/", (req, res) => {
