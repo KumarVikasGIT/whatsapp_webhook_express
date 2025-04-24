@@ -123,48 +123,54 @@ app.post("/webhook", async (req, res) => {
         // 🔹 Fallback message for any other input
         const fallbackResponse = await axios.post(
             `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-            JSON.stringify({
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": "918826095638",
-                "type": "interactive",
-                "interactive": {
-                  "type": "list",
-                  "header": {
-                    "type": "text",
-                    "text": `Hi ${sender}, welcome to SERVIZ Technician BOT.`
-                  },
-                  "body": {
-                    "text": "Please select an option to continue"
-                  },
-                  "action": {
-                    "button": "View Orders",
-                    "sections": [
-                      {
-                        "title": "",
-                        "rows": [
-                          {
-                            "id": "pendingOrders",
-                            "title": "Pending Orders",
-                            "description": "Orders not started yet."
-                          },
-                          {
-                            "id": "wipOrders",
-                            "title": "WIP Orders",
-                            "description": "Orders started and pending."
-                          },
-                          {
-                            "id": "completedOrders",
-                            "title": "Completed Orders",
-                            "description": "Orders that are completed recently."
-                          }
+            {
+                messaging_product: "whatsapp",
+                recipient_type: "individual",
+                to: "918826095638",
+                type: "interactive",
+                interactive: {
+                    type: "list",
+                    header: {
+                        type: "text",
+                        text: `Hi ${sender}, welcome to SERVIZ Technician BOT.`
+                    },
+                    body: {
+                        text: "Please select an option to continue"
+                    },
+                    action: {
+                        button: "View Orders",
+                        sections: [
+                            {
+                                title: "Your Options",
+                                rows: [
+                                    {
+                                        id: "pendingOrders",
+                                        title: "Pending Orders",
+                                        description: "Orders not started yet."
+                                    },
+                                    {
+                                        id: "wipOrders",
+                                        title: "WIP Orders",
+                                        description: "Orders started and pending."
+                                    },
+                                    {
+                                        id: "completedOrders",
+                                        title: "Completed Orders",
+                                        description: "Orders that are completed recently."
+                                    }
+                                ]
+                            }
                         ]
-                      }
-                    ]
-                  }
+                    }
                 }
-              })
+            },
+            {
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            }
         );
+        
 
         console.log("✅ Fallback message sent:", fallbackResponse.data);
         res.sendStatus(200);
