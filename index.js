@@ -66,43 +66,68 @@ app.post("/webhook", async (req, res) => {
     const orderPattern = /^SRVZ-ORD-\d{6}$/i;
 
     try {
-        if (lowerText === "hello") {
-            // 🔹 Send template message if user says "hello"
-            const templateResponse = await axios.post(
-                `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-                {
-                    messaging_product: "whatsapp",
-                    recipient_type: "individual",
-                    to: sender,
-                    type: "template",
-                    template: {
-                        name: "test1",
-                        language: { code: "en_US" },
-                        components: [
-                            {
-                                type: "body",
-                                parameters: [
+
+        if (messageType==="interactive") {
+
+            if(!orderPattern.test(message?.interactive?.list_reply?.title)){
+                const fallbackResponse = await axios.post(
+                    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+                    {
+                        messaging_product: "whatsapp",
+                        recipient_type: "individual",
+                        to: sender,
+                        type: "interactive",
+                        interactive: {
+                            type: "list",
+                            header: {
+                                type: "text",
+                                text: message?.interactive?.list_reply?.title
+                            },
+                            body: {
+                                text: `Here are the list of order that are ${message?.interactive?.list_reply?.title} click below to get more about the order.`
+                            },
+                            action: {
+                                button: "View Orders",
+                                sections: [
                                     {
-                                        type: "text",
-                                        text: senderName
+                                        title: message?.interactive?.list_reply?.title,
+                                        rows: [
+                                            {
+                                                id: "orderID",
+                                                title: "SRVZ-ORD-738762",
+                                                description: "Order Assigned"
+                                            },
+                                            {
+                                                id: "orderID1",
+                                                title: "SRVZ-ORD-738800",
+                                                description: "Order Assigned"
+                                            },
+                                            {
+                                                id: "orderID2",
+                                                title: "SRVZ-ORD-738800",
+                                                description: "Order Assigned"
+                                            },
+                                        ]
                                     }
                                 ]
                             }
-                        ]
+                        }
+                    },
+                    {
+                        headers: {
+                            "Content-Type": "application/json"
+                        }
                     }
-                },
-                {
-                    headers: { "Content-Type": "application/json" }
-                }
-            );
+                );
+                
+        
+                console.log("✅ Fallback message sent:", fallbackResponse.data);
+                res.sendStatus(200);
+            }
 
-            console.log("✅ Template message sent:", templateResponse.data);
-            return res.sendStatus(200);
-        }
-
-        if (orderPattern.test(text)) {
-            // 🔹 Handle order ID messages
-            const orderResponse = await axios.post(
+           if(orderPattern.test(message?.interactive?.list_reply?.title)){
+             // 🔹 Handle order ID messages
+             const orderResponse = await axios.post(
                 `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
                 {
                     messaging_product: "whatsapp",
@@ -118,6 +143,25 @@ app.post("/webhook", async (req, res) => {
 
             console.log("✅ Order message sent:", orderResponse.data);
             return res.sendStatus(200);
+           }
+
+           const orderResponse = await axios.post(
+            `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+            {
+                messaging_product: "whatsapp",
+                to: sender,
+                text: {
+                    body: `It seems your option is invalid`
+                }
+            },
+            {
+                headers: { "Content-Type": "application/json" }
+            }
+        );
+
+        console.log("✅ Order message sent:", orderResponse.data);
+        return res.sendStatus(200);
+    
         }
 
         // 🔹 Fallback message for any other input
