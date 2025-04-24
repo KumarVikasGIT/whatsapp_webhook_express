@@ -42,9 +42,11 @@ app.post("/webhook", async (req, res) => {
     const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     const metadata = body.entry?.[0]?.changes?.[0]?.value?.metadata;
     const contact = body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0];
+    const messageType = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0].type;
 
     if (!body.object || !message || !metadata || !contact) {
         console.warn("⚠️ Invalid webhook structure");
+        console.warn(body);
         return res.sendStatus(404);
     }
 
@@ -58,6 +60,7 @@ app.post("/webhook", async (req, res) => {
     console.log("👤 Sender:", sender);
     console.log("🧾 Message body:", text);
     console.log("📛 Sender name:", senderName);
+    console.log("📛 Message Type:", messageType);
 
     // RegEx pattern for Order ID
     const orderPattern = /^SRVZ-ORD-\d{6}$/i;
@@ -120,16 +123,47 @@ app.post("/webhook", async (req, res) => {
         // 🔹 Fallback message for any other input
         const fallbackResponse = await axios.post(
             `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-            {
-                messaging_product: "whatsapp",
-                to: sender,
-                text: {
-                    body: `👋 Hi ${senderName}, you currently have 6 jobs pending.\nPlease enter a valid order ID (e.g., SRVZ-ORD-123456) to view details.\n\nThank you!`
+            JSON.stringify({
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": "918826095638",
+                "type": "interactive",
+                "interactive": {
+                  "type": "list",
+                  "header": {
+                    "type": "text",
+                    "text": `Hi ${sender}, welcome to SERVIZ Technician BOT.`
+                  },
+                  "body": {
+                    "text": "Please select an option to continue"
+                  },
+                  "action": {
+                    "button": "View Orders",
+                    "sections": [
+                      {
+                        "title": "",
+                        "rows": [
+                          {
+                            "id": "pendingOrders",
+                            "title": "Pending Orders",
+                            "description": "Orders not started yet."
+                          },
+                          {
+                            "id": "wipOrders",
+                            "title": "WIP Orders",
+                            "description": "Orders started and pending."
+                          },
+                          {
+                            "id": "completedOrders",
+                            "title": "Completed Orders",
+                            "description": "Orders that are completed recently."
+                          }
+                        ]
+                      }
+                    ]
+                  }
                 }
-            },
-            {
-                headers: { "Content-Type": "application/json" }
-            }
+              })
         );
 
         console.log("✅ Fallback message sent:", fallbackResponse.data);
