@@ -119,10 +119,12 @@ app.post("/webhook", async (req, res) => {
         const orderData = await fetchOrderDetails(replyId.id);
         await handleOrderStatus(phoneNumberId, sender, orderData);
         return res.sendStatus(200);
+      }else{
+        await sendTextMessage(phoneNumberId, sender, `We unable to process your request this time please try again.`);
+        return res.sendStatus(200);
       }
 
-      await sendTextMessage(phoneNumberId, sender, `We unable to process your request this time please try again.`);
-      return res.sendStatus(200);
+      
     }
 
     await sendInteractiveOptions(phoneNumberId, sender);
