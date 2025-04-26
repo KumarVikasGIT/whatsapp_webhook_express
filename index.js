@@ -282,7 +282,7 @@ const sendInteractiveOrderDetails = async (phoneNumberId, to, orderData, options
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to,
-        type: "intractive",
+        type: "interactive",
         interactive: {
           type: "button",
           header: { type: "text", text: `Order ID: ${orderId}` },
