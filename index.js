@@ -81,7 +81,8 @@ app.post("/webhook", async (req, res) => {
       const replyId = parseCustomId(listReply?.id);
       const replyTitle = listReply?.title;
 
-      console.log("id: "+replyId);
+      console.log("id: "+replyId.id);
+      console.log("status: "+replyId.status);
 
       if (actionPattern.test(replyId.status)) {
         await sendTextMessage(phoneNumberId, sender, `✅ Request received!\nMessage "Hello" to start a new conversation.`);
@@ -120,7 +121,7 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
 
-      await sendInteractiveOrderList(phoneNumberId, sender, replyTitle);
+      await sendTextMessage(phoneNumberId, sender, `We unable to process your request this time please try again.`);
       return res.sendStatus(200);
     }
 
