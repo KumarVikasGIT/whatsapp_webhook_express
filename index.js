@@ -282,9 +282,9 @@ const sendInteractiveOrderDetails = async (phoneNumberId, to, orderData, options
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to,
-        type: "button",
+        type: "intractive",
         interactive: {
-          type: "list",
+          type: "button",
           header: { type: "text", text: `Order ID: ${orderId}` },
           body: {
             text: `📦 *Order Details*\n\n🆔 *Current Status:* ${orderStatus.state}\n📅 *Schedule:* ${formattedDate}\n\n🔧 *Appliance*\n• Category: ${category?.name}\n• Subcategory: ${subCategory?.name}\n• Issue: ${pkg?.issue}\n\n👤 *Customer*\n• Name: ${user?.firstName}\n• Address: ${address?.address}, ${address?.city}\n• Phone: ${user?.mobile}`
