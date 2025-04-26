@@ -124,7 +124,7 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
 
-      
+
     }
 
     await sendInteractiveOptions(phoneNumberId, sender);
@@ -220,7 +220,7 @@ const sendTextMessage = (phoneNumberId, to, message) =>
     text: { body: message }
   });
 
-// Send main menu options
+// Updated: sendInteractiveOptions
 const sendInteractiveOptions = (phoneNumberId, to) =>
   axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
     messaging_product: "whatsapp",
@@ -236,14 +236,15 @@ const sendInteractiveOptions = (phoneNumberId, to) =>
         sections: [{
           title: "Your Options",
           rows: [
-            { id:  createCustomId({ orderStatus: "pendingOrders", orderId, _id }), title: "Pending Orders", description: "Not started yet." },
-            { id: createCustomId({ orderStatus: "wipOrders", orderId, _id }), title: "WIP Orders", description: "In progress." },
-            { id: createCustomId({ orderStatus: "completedOrders", orderId, _id }), title: "Completed Orders", description: "Recently completed." }
+            { id: createCustomId({ orderStatus: "pendingOrders" }), title: "Pending Orders", description: "Not started yet." },
+            { id: createCustomId({ orderStatus: "wipOrders" }), title: "WIP Orders", description: "In progress." },
+            { id: createCustomId({ orderStatus: "completedOrders" }), title: "Completed Orders", description: "Recently completed." }
           ]
         }]
       }
     }
   });
+
 
 // Send orders list
 const sendInteractiveOrderList = (phoneNumberId, to, title, orders = []) =>
