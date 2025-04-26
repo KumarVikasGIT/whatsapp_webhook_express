@@ -56,11 +56,114 @@ app.post("/webhook", async (req, res) => {
             const replyId = listReply?.id;
             const replyTitle = listReply?.title;
 
-            // Action Handler (e.g. accept1)
             if (actionPattern.test(replyId)) {
                 await sendTextMessage(phoneNumberId, sender, `We got your request and updated your order status...\nPlease message \"Hello\" or \"Hi\" to start a new conversation.`);
                 return res.sendStatus(200);
             }
+
+            if (replyId==="pendingOrders") {
+                try {
+                    const response = await axios.get(
+                      `${process.env.BASE_URL_ORDERS}?orderStatus=technician_assigned&technician=${process.env.TECHNICIAN}`,
+                      {
+                        headers: {
+                          "Content-Type": "application/json",
+                          "Authorization": process.env.AUTH_TOKEN
+                        }
+                      }
+                    );
+                
+                    console.log("API response data:", JSON.stringify(response.data));
+                  const formatted = formatOrders(response.data);
+                    console.log("API response data:", JSON.stringify(formatted));
+                    await sendInteractiveOrderDetails(phoneNumberId, sender, replyTitle, formatted);
+                    res.status(200).send({ success: true, message: 'Webhook processed successfully.' });
+                  } catch (error) {
+                      if (error.response) {
+                        console.error("Full API error response:", {
+                          status: error.response.status,
+                          headers: error.response.headers,
+                          data: error.response.data.payload.response
+                        });
+                      } else if (error.request) {
+                        console.error("No response received:", error.request);
+                      } else {
+                        console.error("Request setup error:", error.message);
+                      }
+                    
+                      res.status(500).send({ success: false, message: 'Internal Server Error' });
+                    }   
+            }
+
+            if (replyId==="wipOrders") {
+                try {
+                    const response = await axios.get(
+                      `${process.env.BASE_URL_ORDERS}?orderStatus=technician_working&technician=${process.env.TECHNICIAN}`,
+                      {
+                        headers: {
+                          "Content-Type": "application/json",
+                          "Authorization": process.env.AUTH_TOKEN
+                        }
+                      }
+                    );
+                
+                    console.log("API response data:", JSON.stringify(response.data));
+                  const formatted = formatOrders(response.data);
+                    console.log("API response data:", JSON.stringify(formatted));
+                    await sendInteractiveOrderDetails(phoneNumberId, sender, replyTitle, formatted);
+                    res.status(200).send({ success: true, message: 'Webhook processed successfully.' });
+                  } catch (error) {
+                      if (error.response) {
+                        console.error("Full API error response:", {
+                          status: error.response.status,
+                          headers: error.response.headers,
+                          data: error.response.data.payload.response
+                        });
+                      } else if (error.request) {
+                        console.error("No response received:", error.request);
+                      } else {
+                        console.error("Request setup error:", error.message);
+                      }
+                    
+                      res.status(500).send({ success: false, message: 'Internal Server Error' });
+                    }   
+            }
+
+            if (replyId==="completedOrders") {
+
+                try {
+                    const response = await axios.get(
+                      `${process.env.BASE_URL_ORDERS}?orderStatus=technician_work_completed&technician=${process.env.TECHNICIAN}`,
+                      {
+                        headers: {
+                          "Content-Type": "application/json",
+                          "Authorization": process.env.AUTH_TOKEN
+                        }
+                      }
+                    );
+                
+                    console.log("API response data:", JSON.stringify(response.data));
+                  const formatted = formatOrders(response.data);
+                    console.log("API response data:", JSON.stringify(formatted));
+                    await sendInteractiveOrderDetails(phoneNumberId, sender, replyTitle, formatted);
+                    res.status(200).send({ success: true, message: 'Webhook processed successfully.' });
+                  } catch (error) {
+                      if (error.response) {
+                        console.error("Full API error response:", {
+                          status: error.response.status,
+                          headers: error.response.headers,
+                          data: error.response.data.payload.response
+                        });
+                      } else if (error.request) {
+                        console.error("No response received:", error.request);
+                      } else {
+                        console.error("Request setup error:", error.message);
+                      }
+                    
+                      res.status(500).send({ success: false, message: 'Internal Server Error' });
+                    }   
+            }
+
 
             // Order ID Handler
             if (orderPattern.test(replyTitle)) {
@@ -89,7 +192,7 @@ const sendTextMessage = async (phoneNumberId, to, message) => {
         `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
         {
             messaging_product: "whatsapp",
-            to,
+            to:to,
             text: { body: message }
         },
         { headers: { "Content-Type": "application/json" } }
@@ -102,7 +205,7 @@ const sendInteractiveOrderList = async (phoneNumberId, to, title) => {
         {
             messaging_product: "whatsapp",
             recipient_type: "individual",
-            to,
+            to: to,
             type: "interactive",
             interactive: {
                 type: "list",
@@ -127,13 +230,13 @@ const sendInteractiveOrderList = async (phoneNumberId, to, title) => {
     );
 };
 
-const sendInteractiveOrderDetails = async (phoneNumberId, to, orderId) => {
+const sendInteractiveOrderDetails = async (phoneNumberId, to, orderId, options) => {
     await axios.post(
         `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
         {
             messaging_product: "whatsapp",
             recipient_type: "individual",
-            to,
+            to:to,
             type: "interactive",
             interactive: {
                 type: "list",
@@ -147,10 +250,7 @@ const sendInteractiveOrderDetails = async (phoneNumberId, to, orderId) => {
                     sections: [
                         {
                             title: "Your Options",
-                            rows: [
-                                { id: "accept1", title: "Accept Order", description: "Start your work." },
-                                { id: "accept2", title: "Reject Order", description: "Release this order." }
-                            ]
+                            rows: options
                         }
                     ]
                 }
@@ -166,7 +266,7 @@ const sendInteractiveOptions = async (phoneNumberId, to) => {
         {
             messaging_product: "whatsapp",
             recipient_type: "individual",
-            to,
+            to:to,
             type: "interactive",
             interactive: {
                 type: "list",
@@ -195,3 +295,14 @@ const sendInteractiveOptions = async (phoneNumberId, to) => {
 app.get("/", (req, res) => {
     res.status(200).send("Hello, this is the WhatsApp webhook setup!");
 });
+
+function formatOrders(data) {
+    if (!data || !data.payload || !Array.isArray(data.payload.items)) return [];
+  
+    return data.payload.items.map(item => ({
+      id: item._id,
+      title: item.orderId,
+      description: `${item.category?.name || ''} - ${item.subCategory?.name || ''} | ${item.brand?.name || ''} | ${item.warranty || ''} | ${item.serviceComment || ''}`
+    }));
+  }
+  
