@@ -8,7 +8,7 @@ app.use(bodyParser.json());
 
 const token = process.env.TOKEN;
 const verifyToken = process.env.MYTOKEN;
-const orderPattern = /^SRVZ-ORD-\d{6}$/i;
+const orderPattern = /^SRVZ-ORD-\d{9}$/i;
 const actionPattern = /^accept\d+$/;
 const PORT = process.env.PORT || 3000;
 
@@ -90,9 +90,28 @@ app.post("/webhook", async (req, res) => {
       }
 
       if (orderPattern.test(replyTitle)) {
-        await sendInteractiveOrderDetails(phoneNumberId, sender, replyTitle);
-        return res.sendStatus(200);
+        try {
+          const response = await axios.get(
+            `${process.env.BASE_URL_ORDERS}/${replyId}`,
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": process.env.AUTH_TOKEN
+              }
+            }
+          );
+      
+          const orderData = response.data?.payload;
+          if (!orderData) throw new Error("No order data received");
+      
+          await sendInteractiveOrderDetails(phoneNumberId, sender, orderData);
+          return res.sendStatus(200);
+        } catch (error) {
+          console.error("❌ API Error:", error.response?.data || error.message);
+          return res.status(500).send({ success: false });
+        }
       }
+      
 
       await sendInteractiveOrderList(phoneNumberId, sender, replyTitle);
       return res.sendStatus(200);
@@ -191,35 +210,47 @@ const sendInteractiveOrderList = async (phoneNumberId, to, title, orders=[]) => 
 };
 
 // Send interactive details for each order
-const sendInteractiveOrderDetails = async (phoneNumberId, to, orderId) => {
-  await axios.post(
-    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
-    {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "list",
-        header: { type: "text", text: `Order ID: ${orderId}` },
-        body: {
-          text: `📦 Order Details\n\n🆔 Current Status: Technician Assigned\n📅 Schedule: 12 July 2023, 12:22\n\n🔧 Appliance\n• Category: Air Conditioner\n• Subcategory: Split AC\n• Issue: Not cooling\n\n👤 Customer\n• Name: Vikas Kumar\n• Address: Delhi\n• Phone: 8826095638`
-        },
-        footer: { text: "Click for more options to Accept, Reject or Change Status" },
-        action: {
-          button: "More Options",
-          sections: [
-            {
-              title: "Your Options",
-              rows: options
-            }
-          ]
+const sendInteractiveOrderDetails = async (phoneNumberId, to, orderData) => {
+    const { orderId, category, subCategory, package: pkg, serviceDateTime, user, address, orderStatus } = orderData;
+  
+    const formattedDate = new Date(serviceDateTime).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  
+    await axios.post(
+      `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
+      {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "interactive",
+        interactive: {
+          type: "list",
+          header: { type: "text", text: `Order ID: ${orderId}` },
+          body: {
+            text: `📦 *Order Details*\n\n🆔 *Current Status:* ${orderStatus.state}\n📅 *Schedule:* ${formattedDate}\n\n🔧 *Appliance*\n• Category: ${category?.name}\n• Subcategory: ${subCategory?.name}\n• Issue: ${pkg?.issue}\n\n👤 *Customer*\n• Name: ${user?.firstName}\n• Address: ${address?.address}, ${address?.city}\n• Phone: ${user?.mobile}`
+          },
+          footer: { text: "Click for more options to Accept, Reject or Change Status" },
+          action: {
+            button: "More Options",
+            sections: [
+              {
+                title: "Your Options",
+                rows: options // ensure `options` is defined/imported
+              }
+            ]
+          }
         }
-      }
-    },
-    { headers: { "Content-Type": "application/json" } }
-  );
-};
+      },
+      { headers: { "Content-Type": "application/json" } }
+    );
+  };
+  
 
 // Default route
 app.get("/", (req, res) => {
