@@ -82,9 +82,9 @@ app.post("/webhook", async (req, res) => {
       const replyTitle = listReply?.title;
 
       console.log("id: "+replyId.id);
-      console.log("status: "+replyId.status);
+      console.log("status: "+replyId.orderStatus);
 
-      if (actionPattern.test(replyId.status)) {
+      if (actionPattern.test(replyId.orderStatus)) {
         await sendTextMessage(phoneNumberId, sender, `✅ Request received!\nMessage "Hello" to start a new conversation.`);
         return res.sendStatus(200);
       }
@@ -104,13 +104,13 @@ app.post("/webhook", async (req, res) => {
         completedOrders: "technician_work_completed"
       };
 
-      if (updateStatusMap[replyId.status]) {
-        await updateOrderStatus(replyId, updateStatusMap[replyId.status]);
+      if (updateStatusMap[replyId.orderStatus]) {
+        await updateOrderStatus(replyId, updateStatusMap[replyId.orderStatus]);
         return res.sendStatus(200);
       }
 
-      if (orderStatusMap[replyId.status]) {
-        const formattedOrders = await fetchOrdersByStatus(orderStatusMap[replyId.status]);
+      if (orderStatusMap[replyId.orderStatus]) {
+        const formattedOrders = await fetchOrdersByStatus(orderStatusMap[replyId.orderStatus]);
         await sendInteractiveOrderList(phoneNumberId, sender, replyTitle, formattedOrders);
         return res.status(200).send({ success: true });
       }
@@ -234,9 +234,9 @@ const sendInteractiveOptions = (phoneNumberId, to) =>
         sections: [{
           title: "Your Options",
           rows: [
-            { id: "pendingOrders", title: "Pending Orders", description: "Not started yet." },
-            { id: "wipOrders", title: "WIP Orders", description: "In progress." },
-            { id: "completedOrders", title: "Completed Orders", description: "Recently completed." }
+            { id:  createCustomId({ orderStatus: "pendingOrders", orderId, _id }), title: "Pending Orders", description: "Not started yet." },
+            { id: createCustomId({ orderStatus: "wipOrders", orderId, _id }), title: "WIP Orders", description: "In progress." },
+            { id: createCustomId({ orderStatus: "completedOrders", orderId, _id }), title: "Completed Orders", description: "Recently completed." }
           ]
         }]
       }
