@@ -103,8 +103,62 @@ app.post("/webhook", async (req, res) => {
       
           const orderData = response.data?.payload;
           if (!orderData) throw new Error("No order data received");
-      
-          await sendInteractiveOrderDetails(phoneNumberId, sender, orderData);
+
+          if(orderData.orderStatus.currentStatus==="technician_assigned"){
+            await sendInteractiveOrderDetails(phoneNumberId, sender, orderData, [
+                {
+                  type: "reply",
+                  reply: {
+                    id: "acceptOrder",
+                    title: "Accept Order"
+                  }
+                },
+                {
+                  type: "reply",
+                  reply: {
+                    id: "rejectOrder",
+                    title: "Reject Order"
+                  }
+                }
+              ]);
+          }
+
+          if(orderData.orderStatus.currentStatus==="technician_accepted"){
+            await sendInteractiveOrderDetails(phoneNumberId, sender, orderData, [
+                {
+                  type: "reply",
+                  reply: {
+                    id: "technicianReachedLocation",
+                    title: "Update Status"
+                  }
+                }
+              ]);
+          }
+
+          if(orderData.orderStatus.currentStatus==="technician_on_location"){
+            await sendInteractiveOrderDetails(phoneNumberId, sender, orderData, [
+                {
+                  type: "reply",
+                  reply: {
+                    id: "technicianWIP",
+                    title: "Update Status"
+                  }
+                }
+              ]);
+          }
+
+          if(orderData.orderStatus.currentStatus==="technician_working"){
+            await sendInteractiveOrderDetails(phoneNumberId, sender, orderData, [
+                {
+                  type: "reply",
+                  reply: {
+                    id: "makePartRequest",
+                    title: "Make Part Request"
+                  }
+                }
+              ]);
+          }
+    
           return res.sendStatus(200);
         } catch (error) {
           console.error("❌ API Error:", error.response?.data || error.message);
@@ -228,7 +282,7 @@ const sendInteractiveOrderDetails = async (phoneNumberId, to, orderData, options
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to,
-        type: "interactive",
+        type: "button",
         interactive: {
           type: "list",
           header: { type: "text", text: `Order ID: ${orderId}` },
@@ -237,13 +291,7 @@ const sendInteractiveOrderDetails = async (phoneNumberId, to, orderData, options
           },
           footer: { text: "Click for more options to Accept, Reject or Change Status" },
           action: {
-            button: "More Options",
-            sections: [
-              {
-                title: "Your Options",
-                rows: options // ensure `options` is defined/imported
-              }
-            ]
+            buttons: options
           }
         }
       },
