@@ -36,11 +36,16 @@ const createCustomId = (data = {}) =>
   Object.entries(data).map(([k, v]) => `${k}:${v}`).join("|");
 
 const parseCustomId = (idString = "") =>
-  idString.split("|").reduce((acc, part) => {
-    const [key, value] = part.split(":");
-    acc[key] = value;
-    return acc;
-  }, {});
+    idString.split("|").reduce((acc, part) => {
+      const separatorIndex = part.indexOf(":");
+      if (separatorIndex > -1) {
+        const key = part.slice(0, separatorIndex);
+        const value = part.slice(separatorIndex + 1);
+        if (key) acc[key] = value;
+      }
+      return acc;
+    }, {});
+  
 
 // Webhook verification
 app.get("/webhook", (req, res) => {
@@ -152,6 +157,7 @@ const formatState = (status) =>
 // Fetch orders by status
 const fetchOrdersByStatus = async (status) => {
   const response = await api.get(`${BASE_URL_ORDERS}?orderStatus=technician_assigned&technician=${TECHNICIAN}`);
+  console.log(response.data.payload);
   return formatOrders(response.data);
 };
 
