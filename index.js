@@ -8,7 +8,7 @@ app.use(bodyParser.json());
 
 const token = process.env.TOKEN;
 const verifyToken = process.env.MYTOKEN;
-const orderPattern = /^SRVZ-ORD-\d{9}$/i;
+const orderPattern = /^SRVZ-ORD-\d{9-10}$/i;
 const actionPattern = /^accept\d+$/;
 const PORT = process.env.PORT || 3000;
 
@@ -53,10 +53,10 @@ app.post("/webhook", async (req, res) => {
   try {
     if (messageType === "interactive") {
       const listReply = message?.interactive?.list_reply;
-      const replyId = listReply?.id;
+      const replyId = parseCustomId(listReply?.id);
       const replyTitle = listReply?.title;
 
-      if (actionPattern.test(replyId)) {
+      if (actionPattern.test(replyId.status)) {
         await sendTextMessage(phoneNumberId, sender, `We got your request and updated your order status...\nPlease message \"Hello\" or \"Hi\" to start a new conversation.`);
         return res.sendStatus(200);
       }
@@ -67,7 +67,42 @@ app.post("/webhook", async (req, res) => {
         completedOrders: "technician_work_completed"
       };
 
-      if (orderStatusMap[replyId]) {
+
+
+      const updateStatus = {
+        acceptOrder: "technician_accepted",
+        rejectOrder: "technician_rejected",
+        technicianReachedLocation: "technician_on_location",
+        technicianWIP: "technician_working",
+        makePartRequest: "parts_approval_pending",
+        makeMarkComplete: "technician_work_completed",
+      };
+
+      if(updateStatus[replyId.status]){
+        if(updateStatus[replyId.status]==="technician_accepted"){
+            const response = await axios.post(
+                `${process.env.BASE_URL_STATUS}`,
+                {
+                    order: {
+                      orderId: replyId.order,
+                      _id: replyId.id
+                    },
+                    lastStatus: "technician_assigned",
+                    statusChangeFrom: "admin",
+                    currentStatus: "technician_accepted",
+                    state: "Technician Accepted"
+                  },
+                {
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": process.env.AUTH_TOKEN
+                  }
+                }
+              );
+        }
+      }
+
+      if (orderStatusMap[replyId.status]) {
         try {
           const response = await axios.get(
             `${process.env.BASE_URL_ORDERS}?orderStatus=${orderStatusMap[replyId]}&technician=${process.env.TECHNICIAN}`,
@@ -92,7 +127,7 @@ app.post("/webhook", async (req, res) => {
       if (orderPattern.test(replyTitle)) {
         try {
           const response = await axios.get(
-            `${process.env.BASE_URL_ORDERS}/${replyId}`,
+            `${process.env.BASE_URL_ORDERS}/${replyId.id}`,
             {
               headers: {
                 "Content-Type": "application/json",
@@ -109,14 +144,22 @@ app.post("/webhook", async (req, res) => {
                 {
                   type: "reply",
                   reply: {
-                    id: "acceptOrder",
+                    id: createCustomId({
+                        orderStatus: "acceptOrder",
+                        orderId: orderData.orderStatus.orderId,
+                        _id: orderData._id,
+                      }),
                     title: "Accept Order"
                   }
                 },
                 {
                   type: "reply",
                   reply: {
-                    id: "rejectOrder",
+                    id:  createCustomId({
+                        orderStatus: "rejectOrder",
+                        orderId: orderData.orderStatus.orderId,
+                        _id: orderData._id,
+                      }),
                     title: "Reject Order"
                   }
                 }
@@ -128,7 +171,11 @@ app.post("/webhook", async (req, res) => {
                 {
                   type: "reply",
                   reply: {
-                    id: "technicianReachedLocation",
+                    id: createCustomId({
+                        orderStatus: "technicianReachedLocation",
+                        orderId: orderData.orderStatus.orderId,
+                        _id: orderData._id,
+                      }),
                     title: "Update Status"
                   }
                 }
@@ -140,7 +187,11 @@ app.post("/webhook", async (req, res) => {
                 {
                   type: "reply",
                   reply: {
-                    id: "technicianWIP",
+                    id: createCustomId({
+                        orderStatus: "technicianWIP",
+                        orderId: orderData.orderStatus.orderId,
+                        _id: orderData._id,
+                      }),
                     title: "Update Status"
                   }
                 }
@@ -152,12 +203,45 @@ app.post("/webhook", async (req, res) => {
                 {
                   type: "reply",
                   reply: {
-                    id: "makePartRequest",
+                    id: createCustomId({
+                        orderStatus: "makePartRequest",
+                        orderId: orderData.orderStatus.orderId,
+                        _id: orderData._id,
+                      }),
+                    title: "Make Part Request"
+                  }
+                },
+                {
+                    type: "reply",
+                    reply: {
+                      id: createCustomId({
+                        orderStatus: "makeMarkComplete",
+                        orderId: orderData.orderStatus.orderId,
+                        _id: orderData._id,
+                      }),
+                      title: "Make Work Complete"
+                    }
+                  }
+              ]);
+          }
+
+          if(orderData.orderStatus.currentStatus==="technician_working"){
+            await sendInteractiveOrderDetails(phoneNumberId, sender, orderData, [
+                {
+                  type: "reply",
+                  reply: {
+                    id: createCustomId({
+                        orderStatus: "makePartRequest",
+                        orderId: orderData.orderStatus.orderId,
+                        _id: orderData._id,
+                      }),
                     title: "Make Part Request"
                   }
                 }
               ]);
           }
+
+
     
           return res.sendStatus(200);
         } catch (error) {
@@ -298,7 +382,19 @@ const sendInteractiveOrderDetails = async (phoneNumberId, to, orderData, options
       { headers: { "Content-Type": "application/json" } }
     );
   };
+
+  const createCustomId = ({ orderStatus, orderId, _id }) => {
+    return `status:${orderStatus}|order:${orderId}|id:${_id}`;
+  };
   
+  const parseCustomId = (idString) => {
+    const parts = idString.split("|").reduce((acc, part) => {
+      const [key, value] = part.split(":");
+      acc[key] = value;
+      return acc;
+    }, {});
+    return parts;
+  };
 
 // Default route
 app.get("/", (req, res) => {
