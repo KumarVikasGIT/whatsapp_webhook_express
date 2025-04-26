@@ -116,6 +116,7 @@ app.post("/webhook", async (req, res) => {
       }
 
       if (orderPattern.test(replyTitle)) {
+        console.log("orddder id "+replyId.id);
         const orderData = await fetchOrderDetails(replyId.id);
         await handleOrderStatus(phoneNumberId, sender, orderData);
         return res.sendStatus(200);
