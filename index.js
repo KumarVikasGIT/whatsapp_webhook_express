@@ -76,6 +76,8 @@ app.post("/webhook", async (req, res) => {
       const replyId = parseCustomId(listReply?.id);
       const replyTitle = listReply?.title;
 
+      console.log("id: "+replyId);
+
       if (actionPattern.test(replyId.status)) {
         await sendTextMessage(phoneNumberId, sender, `✅ Request received!\nMessage "Hello" to start a new conversation.`);
         return res.sendStatus(200);
@@ -149,7 +151,7 @@ const formatState = (status) =>
 
 // Fetch orders by status
 const fetchOrdersByStatus = async (status) => {
-  const response = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${TECHNICIAN}`);
+  const response = await api.get(`${BASE_URL_ORDERS}?orderStatus=technician_assigned&technician=${TECHNICIAN}`);
   return formatOrders(response.data);
 };
 
