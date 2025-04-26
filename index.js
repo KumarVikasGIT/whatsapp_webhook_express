@@ -210,7 +210,7 @@ const sendInteractiveOrderList = async (phoneNumberId, to, title, orders=[]) => 
 };
 
 // Send interactive details for each order
-const sendInteractiveOrderDetails = async (phoneNumberId, to, orderData) => {
+const sendInteractiveOrderDetails = async (phoneNumberId, to, orderData, options=[]) => {
     const { orderId, category, subCategory, package: pkg, serviceDateTime, user, address, orderStatus } = orderData;
   
     const formattedDate = new Date(serviceDateTime).toLocaleString("en-IN", {
