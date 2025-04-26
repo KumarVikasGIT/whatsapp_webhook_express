@@ -81,7 +81,7 @@ app.post("/webhook", async (req, res) => {
       const replyId = parseCustomId(listReply?.id);
       const replyTitle = listReply?.title;
 
-      console.log("id: "+replyId.id);
+    //   console.log("id: "+replyId.id);
       console.log("status: "+replyId.orderStatus);
 
       if (actionPattern.test(replyId.orderStatus)) {
