@@ -81,7 +81,7 @@ app.post("/webhook", async (req, res) => {
 
           const formatted = formatOrders(response.data);
           console.log("\ud83d\udcca Formatted Orders:", JSON.stringify(formatted));
-          await sendInteractiveOrderDetails(phoneNumberId, sender, replyTitle, formatted);
+          await sendInteractiveOrderList(phoneNumberId, sender, replyTitle, formatted);
           return res.status(200).send({ success: true });
         } catch (error) {
           console.error("\u274c API Error:", error.response?.data || error.message);
@@ -163,7 +163,7 @@ const sendInteractiveOptions = async (phoneNumberId, to) => {
 };
 
 // Send interactive list of orders
-const sendInteractiveOrderList = async (phoneNumberId, to, title) => {
+const sendInteractiveOrderList = async (phoneNumberId, to, title, orders=[]) => {
   await axios.post(
     `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
     {
@@ -180,11 +180,7 @@ const sendInteractiveOrderList = async (phoneNumberId, to, title) => {
           sections: [
             {
               title,
-              rows: [
-                { id: "orderID", title: "SRVZ-ORD-738762", description: "Order Assigned" },
-                { id: "orderID1", title: "SRVZ-ORD-738800", description: "Order Assigned" },
-                { id: "orderID2", title: "SRVZ-ORD-738801", description: "Order Assigned" }
-              ]
+              rows: orders
             }
           ]
         }
@@ -195,7 +191,7 @@ const sendInteractiveOrderList = async (phoneNumberId, to, title) => {
 };
 
 // Send interactive details for each order
-const sendInteractiveOrderDetails = async (phoneNumberId, to, orderId, options = []) => {
+const sendInteractiveOrderDetails = async (phoneNumberId, to, orderId) => {
   await axios.post(
     `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${token}`,
     {
