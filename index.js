@@ -33,18 +33,22 @@ const api = axios.create({
 
 // ID Helpers
 const createCustomId = (data = {}) =>
-  Object.entries(data).map(([k, v]) => `${k}:${v}`).join("|");
-
-const parseCustomId = (idString = "") =>
+    Object.entries(data)
+      .filter(([, v]) => v !== undefined && v !== null) // ❗ skip undefined/null
+      .map(([k, v]) => `${k}:${encodeURIComponent(v)}`) // ❗ safe encoding
+      .join("|");
+  
+  const parseCustomId = (idString = "") =>
     idString.split("|").reduce((acc, part) => {
       const separatorIndex = part.indexOf(":");
       if (separatorIndex > -1) {
         const key = part.slice(0, separatorIndex);
         const value = part.slice(separatorIndex + 1);
-        if (key) acc[key] = value;
+        if (key) acc[key] = decodeURIComponent(value); // ❗ safe decoding
       }
       return acc;
     }, {});
+  
   
 
 // Webhook verification
