@@ -175,7 +175,7 @@ const formatState = (status) =>
 const fetchOrdersByStatus = async (status) => {
   const response = await api.get(`${BASE_URL_ORDERS}?orderStatus=technician_assigned&technician=${TECHNICIAN}`);
   console.log(response.data.payload);
-  return formatOrders(response.data);
+  return formatOrdersList(response.data);
 };
 
 // Fetch specific order details
@@ -188,7 +188,7 @@ const fetchOrderDetails = async (id) => {
 const handleOrderStatus = async (phoneNumberId, sender, orderData) => {
   if (!orderData) throw new Error("No order data found");
 
-  const { currentStatus, orderId, _id } = orderData.orderStatus;
+  const { currentStatus, orderId, _id } = orderData;
 
   const optionsMap = {
     technician_assigned: [
@@ -219,7 +219,7 @@ const handleOrderStatus = async (phoneNumberId, sender, orderData) => {
 };
 
 // Format order list
-const formatOrders = (data) => {
+const formatOrdersList = (data) => {
     console.log("📦 Raw order data:", JSON.stringify(data?.payload?.items, null, 2));
   
     const formattedOrders = data?.payload?.items?.map(item => {
