@@ -1,12 +1,11 @@
+// server.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 const { Status, MyOrderStatus } = require("./order_status");
 require("dotenv").config();
 
-const app = express();
-app.use(bodyParser.json());
-
+// Environment Variables
 const {
   TOKEN,
   MYTOKEN: VERIFY_TOKEN,
@@ -17,14 +16,14 @@ const {
   PORT = 3000,
 } = process.env;
 
-const orderPattern = /^SRVZ-ORD-\d{9,10}$/i;
-const actionPattern = /^accept\d+$/;
+// Express App Setup
+const app = express();
+app.use(bodyParser.json());
 
-app.listen(PORT, () => {
-  console.log(`✅ Webhook server running on port ${PORT}`);
-});
+// Start server
+app.listen(PORT, () => console.log(`✅ Webhook server running on port ${PORT}`));
 
-// Helper - centralized axios instance
+// Axios Instance
 const api = axios.create({
   headers: {
     "Content-Type": "application/json",
@@ -32,48 +31,36 @@ const api = axios.create({
   },
 });
 
-// ID Helpers
-const createCustomId = (data = {}) => {
-  const idString = Object.entries(data)
-    .filter(([, v]) => v !== undefined && v !== null) // ❗ skip undefined/null
-    .map(([k, v]) => `${k}:${encodeURIComponent(v)}`) // ❗ safe encoding
+// Utilities: ID Management
+const createCustomId = (data = {}) =>
+  Object.entries(data)
+    .filter(([, v]) => v != null)
+    .map(([k, v]) => `${k}:${encodeURIComponent(v)}`)
     .join("|");
 
-  console.log("🛠 Created Custom ID:", idString); // << Log created ID
-  return idString;
-};
-
-const parseCustomId = (idString = "") => {
-  const parsed = idString.split("|").reduce((acc, part) => {
-    const separatorIndex = part.indexOf(":");
-    if (separatorIndex > -1) {
-      const key = part.slice(0, separatorIndex);
-      const value = part.slice(separatorIndex + 1);
-      if (key) acc[key] = decodeURIComponent(value); // ❗ safe decoding
-    }
+const parseCustomId = (idString = "") =>
+  idString.split("|").reduce((acc, part) => {
+    const [key, value] = part.split(":");
+    if (key) acc[key] = decodeURIComponent(value);
     return acc;
   }, {});
 
-  console.log("🛠 Parsed Custom ID:", parsed); // << Log parsed ID
-  return parsed;
-};
-
-// Webhook verification
+// ========================
+// Webhook Verification
+// ========================
 app.get("/webhook", (req, res) => {
-  const {
-    "hub.mode": mode,
-    "hub.challenge": challenge,
-    "hub.verify_token": token,
-  } = req.query;
+  const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     console.log("✅ Webhook verified");
     return res.status(200).send(challenge);
   }
   console.warn("❌ Webhook verification failed");
-  res.sendStatus(403);
+  return res.sendStatus(403);
 });
 
-// Main webhook endpoint
+// ========================
+// Webhook Handler
+// ========================
 app.post("/webhook", async (req, res) => {
   const entry = req.body?.entry?.[0]?.changes?.[0]?.value;
   const message = entry?.messages?.[0];
@@ -81,245 +68,164 @@ app.post("/webhook", async (req, res) => {
   const contact = entry?.contacts?.[0];
 
   if (!message || !metadata || !contact) {
-    console.warn("⚠️ Invalid webhook payload structure");
+    console.warn("⚠️ Invalid webhook payload");
     return res.sendStatus(404);
   }
 
   const { phone_number_id: phoneNumberId } = metadata;
   const sender = message.from;
   const senderName = contact.profile?.name || "Unknown";
-  const messageType = message.type;
 
   try {
-    if (messageType === "interactive") {
-      const listReply =
-        message?.interactive?.list_reply || message?.interactive?.button_reply;
-      const replyId = parseCustomId(listReply?.id);
-      const replyTitle = listReply?.title;
+    if (message.type === "interactive") {
+      const reply = message.interactive.list_reply || message.interactive.button_reply;
+      const replyId = parseCustomId(reply?.id);
+      const replyTitle = reply?.title;
 
-      //   console.log("id: "+replyId.id);
-      console.log("status: " + replyId.orderStatus);
-
-      const updateStatusMap = {
-        acceptOrder: "technician_accepted",
-        rejectOrder: "technician_rejected",
-        technicianReachedLocation: "technician_on_location",
-        technicianWIP: "technician_working",
-        makePartRequest: "parts_approval_pending",
-        makeMarkComplete: "technician_work_completed",
-      };
-
-      const orderStatusMap = {
-        pendingOrders: "technician_assigned",
-        wipOrders: "technician_working",
-        completedOrders: "technician_work_completed",
-      };
-
-      if (updateStatusMap[replyId.orderStatus]) {
-        const st1 = MyOrderStatus.fromStatusCode(
-          updateStatusMap[replyId.orderStatus]
-        );
-
-        await updateOrderStatus(replyId, st1, replyId.currentStatus);
-        return res.sendStatus(200);
-      }
-
-      if (orderStatusMap[replyId.orderStatus]) {
-
-        if(replyId.orderStatus==="technician_working"){
-            const wipOrders = await fetchOrdersByStatus(
-                "technician_working"
-              );
-
-              const reachedLocation = await fetchOrdersByStatus(
-                "technician_on_location"
-              );
-            
-              const partPending = await fetchOrdersByStatus(
-                "parts_approval_pending"
-              );
-            
-              const partHandoverToTechnician = await fetchOrdersByStatus(
-                "parts_handover_to_tecnician"
-              );
-
-              const defectivePickup = await fetchOrdersByStatus(
-                "defective_pickup"
-              );
-            
-
-        }
-
-        const formattedOrders = await fetchOrdersByStatus(
-          orderStatusMap[replyId.orderStatus]
-        );
-
-        // Check if formattedOrders is empty
-        if (formattedOrders.length === 0) {
-          await sendTextMessage(
-            phoneNumberId,
-            sender,
-            `Currently you have no orders in queue, try again after some time.`
-          );
-          return res.status(200).send({ success: true }); // Return a successful response after sending the message
-        }
-
-        await sendInteractiveOrderList(
-          phoneNumberId,
-          sender,
-          replyTitle,
-          formattedOrders
-        );
-        return res.status(200).send({ success: true });
-      }
-
-      if (orderPattern.test(replyTitle)) {
-        console.log("orddder id " + replyId.id);
-        const orderData = await fetchOrderDetails(replyId.id);
-
-        if (replyId.orderStatus === "technician_work_completed") {
-          const formattedDate = new Date(
-            orderData.serviceDateTime
-          ).toLocaleString("en-IN", {
-            timeZone: "Asia/Kolkata",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-
-          await sendTextMessage(
-            phoneNumberId,
-            sender,
-            `📦 *Order Details*\n\n🆔 *Status:* ${orderData.orderStatus.state}\n📅 *Schedule:* ${formattedDate}\n\n🔧 *Appliance*\n• ${orderData.category?.name} - ${orderData.subCategory?.name}\n• Issue: ${orderData.pkg?.issue}\n\n👤 *Customer*\n• ${orderData.user?.firstName}\n• ${orderData.address?.address}, ${orderData.address?.city}\n• 📞 ${orderData.user?.mobile}`
-          );
-          return res.sendStatus(200);
-        }
-
-        await handleOrderStatus(phoneNumberId, sender, orderData);
-        return res.sendStatus(200);
-      } else {
-        await sendTextMessage(
-          phoneNumberId,
-          sender,
-          `We unable to process your request this time please try again.`
-        );
-        return res.sendStatus(200);
-      }
+      await handleInteractiveMessage(replyId, replyTitle, phoneNumberId, sender);
+      return res.sendStatus(200);
     }
 
+    // Fallback: show default menu
     await sendInteractiveOptions(phoneNumberId, sender);
-    res.sendStatus(200);
+    return res.sendStatus(200);
+    
   } catch (error) {
-    await sendTextMessage(
-      phoneNumberId,
-      sender,
-      `We unable to process your request this time please try again.`
-    );
-    if (error.response) {
-      console.error("❌ Webhook Error Response:");
-      console.error("Status:", error.response.status);
-      console.error("Data:", JSON.stringify(error.response.data, null, 2));
-    } else {
-      console.error("❌ Webhook General Error:", error.message);
-    }
-    res.sendStatus(500);
+    console.error("❌ Webhook Processing Error:", error?.response?.data || error.message);
+    await sendTextMessage(phoneNumberId, sender, "We are unable to process your request. Please try again later.");
+    return res.sendStatus(500);
   }
 });
 
-// ================================
-// 🚀 Utility Functions
-// ================================
-
-// Update Order Status
-const updateOrderStatus = async (replyId, currentStatus, lastStatus) => {
-  var data = {
-    order: {
-      orderId: replyId.orderId,
-      _id: replyId.id,
-    },
-    lastStatus: lastStatus,
-    statusChangeFrom: "admin",
-    changeFrom: "admin",
-    currentStatus: currentStatus.statusCode,
-    state: currentStatus.state,
-    user: {
-      _id: "6464bf7e4f51a5937348796f",
-      email: "9934012217@serviz.com",
-      firstName: "Rahul",
-    },
+// ========================
+// Handlers
+// ========================
+const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, sender) => {
+  const updateStatusMap = {
+    acceptOrder: "technician_accepted",
+    rejectOrder: "technician_rejected",
+    technicianReachedLocation: "technician_on_location",
+    technicianWIP: "technician_working",
+    makePartRequest: "parts_approval_pending",
+    makeMarkComplete: "technician_work_completed",
   };
 
-  console.log("cccccc" + JSON.stringify(data));
+  const orderStatusMap = {
+    pendingOrders: "technician_assigned",
+    wipOrders: "technician_working",
+    completedOrders: "technician_work_completed",
+  };
 
+  if (updateStatusMap[replyId.orderStatus]) {
+    const status = MyOrderStatus.fromStatusCode(updateStatusMap[replyId.orderStatus]);
+    return await updateOrderStatus(replyId, status, replyId.currentStatus, phoneNumberId, sender);
+  }
+
+  if (orderStatusMap[replyId.orderStatus]) {
+    return await sendOrderSections(orderStatusMap[replyId.orderStatus], replyTitle, phoneNumberId, sender);
+  }
+
+  if (/^SRVZ-ORD-\d{9,10}$/i.test(replyTitle)) {
+    const orderData = await fetchOrderDetails(replyId.id);
+    if (replyId.orderStatus === "technician_work_completed") {
+      return await sendOrderDetailsSummary(orderData, phoneNumberId, sender);
+    }
+    return await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+  }
+
+  return await sendTextMessage(phoneNumberId, sender, "Sorry, we couldn't process your selection.");
+};
+
+// ========================
+// Order Actions
+// ========================
+const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sender) => {
   try {
-    const response = await api.post(BASE_URL_STATUS, {
-      order: {
-        orderId: replyId.orderId,
-        _id: replyId.id,
-      },
-      lastStatus: lastStatus,
+    const { data } = await api.post(BASE_URL_STATUS, {
+      order: { orderId: replyId.orderId, _id: replyId.id },
+      lastStatus,
+      currentStatus: status.statusCode,
+      state: status.state,
       statusChangeFrom: "admin",
       changeFrom: "admin",
-      currentStatus: currentStatus.statusCode,
-      state: currentStatus.state,
       user: {
         _id: "6464bf7e4f51a5937348796f",
         email: "9934012217@serviz.com",
         firstName: "Rahul",
       },
     });
-    console.log("✅ updateOrderStatus - Success:", response.data);
+
+    if (!data?.payload) throw new Error("Invalid API response");
+
+    console.log("✅ Order status updated:", data.payload._id);
+    await sendTextMessage(phoneNumberId, sender, "Order status updated successfully.");
   } catch (error) {
-    console.error(
-      "❌ updateOrderStatus - Error:",
-      error?.response?.data || error.message
-    );
-    throw error;
+    console.error("❌ updateOrderStatus error:", error?.response?.data || error.message);
+    await sendTextMessage(phoneNumberId, sender, "Failed to update order status.");
   }
 };
 
-// Fetch orders by status
+const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
+  const sectionConfigs = {
+    technician_working: [
+      { title: "Work in Progress", statusCode: "technician_working" },
+      { title: "Reached Location", statusCode: "technician_on_location" },
+      { title: "Part Pending", statusCode: "parts_approval_pending" },
+      { title: "Part Handover to Technician", statusCode: "parts_handover_to_tecnician" },
+      { title: "Defective Pickup", statusCode: "defective_pickup" },
+    ],
+    technician_assigned: [
+      { title: "Assigned Orders", statusCode: "technician_assigned" },
+      { title: "Reassigned Orders", statusCode: "technician_reassigned" },
+      { title: "Accepted Orders", statusCode: "technician_accepted" },
+    ],
+  };
+
+  if (sectionConfigs[status]) {
+    const sections = [];
+
+    for (const config of sectionConfigs[status]) {
+      const orders = await fetchOrdersByStatus(config.statusCode);
+      if (orders.length > 0) {
+        sections.push({ title: config.title, rows: orders });
+      }
+    }
+
+    if (sections.length === 0) {
+      await sendTextMessage(phoneNumberId, sender, "Currently you have no pending orders. Try again later.");
+      return;
+    }
+
+    await sendInteractiveList(phoneNumberId, sender, replyTitle, sections);
+  } else {
+    const orders = await fetchOrdersByStatus(status);
+    if (orders.length === 0) {
+      await sendTextMessage(phoneNumberId, sender, "No orders found at this time.");
+    } else {
+      await sendInteractiveList(phoneNumberId, sender, replyTitle, [{ title: replyTitle, rows: orders }]);
+    }
+  }
+};
+
 const fetchOrdersByStatus = async (status) => {
   try {
-    console.log(`📥 Fetching orders for status: ${status}`);
-
-    const response = await api.get(
-      `${BASE_URL_ORDERS}?orderStatus=${status}&technician=${TECHNICIAN}`
-    );
-
-    console.log(
-      "✅ Orders fetched successfully:",
-      JSON.stringify(response.data?.payload, null, 2)
-    );
-
-    return formatOrdersList(response.data);
+    const { data } = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${TECHNICIAN}`);
+    return formatOrdersList(data?.payload?.items || []);
   } catch (error) {
-    console.error("❌ Error fetching orders by status:", {
-      message: error.message,
-      url: `${BASE_URL_ORDERS}?orderStatus=${status}&technician=${TECHNICIAN}`,
-      responseData: error.response?.data || "No response data",
-      stack: error.stack,
-    });
-    return []; // 🔥 Return empty list safely on error
+    console.error("❌ fetchOrdersByStatus error:", error?.response?.data || error.message);
+    return [];
   }
 };
 
-// Fetch specific order details
 const fetchOrderDetails = async (id) => {
-  const response = await api.get(`${BASE_URL_ORDERS}/${id}`);
-  return response.data?.payload;
+  const { data } = await api.get(`${BASE_URL_ORDERS}/${id}`);
+  return data?.payload;
 };
 
-// Handle interactive buttons based on order status
-const handleOrderStatus = async (phoneNumberId, sender, orderData) => {
-  if (!orderData)
-    throw new Error("❌ No order data found in handleOrderStatus");
+const handleOrderStatusOptions = async (phoneNumberId, sender, orderData) => {
+  const { orderId, _id, orderStatus } = orderData;
 
-  const { orderStatus, orderId, _id } = orderData;
-
-  const optionsMap = {
+  const options = {
     technician_assigned: [
       { status: "acceptOrder", title: "Accept Order" },
       { status: "rejectOrder", title: "Reject Order" },
@@ -331,196 +237,94 @@ const handleOrderStatus = async (phoneNumberId, sender, orderData) => {
       { status: "technicianWIP", title: "Update Status" },
     ],
     technician_working: [
-      { status: "makePartRequest", title: "Make Part Request" },
+      { status: "makePartRequest", title: "Request Part" },
       { status: "makeMarkComplete", title: "Mark Work Complete" },
     ],
-  };
+  }[orderStatus.currentStatus] || [];
 
-  const options =
-    optionsMap[orderStatus.currentStatus]?.map((opt) => ({
-      type: "reply",
-      reply: {
-        id: createCustomId({
-          orderStatus: opt.status,
-          orderId,
-          id: _id,
-          currentStatus: orderStatus.currentStatus,
-        }),
-        title: opt.title,
-      },
-    })) || [];
+  const buttons = options.map(opt => ({
+    type: "reply",
+    reply: { id: createCustomId({ orderStatus: opt.status, orderId, id: _id, currentStatus: orderStatus.currentStatus }), title: opt.title },
+  }));
 
-  console.log(
-    "🛠 handleOrderStatus - Generated Options:",
-    JSON.stringify(options, null, 2)
-  ); // 👈 log the buttons
-
-  await sendInteractiveOrderDetails(phoneNumberId, sender, orderData, options);
+  return await sendInteractiveButtons(phoneNumberId, sender, orderData, buttons);
 };
 
-// Format order list
-const formatOrdersList = (data) => {
-  console.log(
-    "📦 Raw order data:",
-    JSON.stringify(data?.payload?.items, null, 2)
-  );
-
-  const formattedOrders =
-    data?.payload?.items?.map((item) => {
-      const customId = createCustomId({
-        orderStatus: item.orderStatus?.currentStatus,
-        orderId: item.orderId,
-        id: item._id,
-      });
-
-      console.log("🛠 Created ID for order:", {
-        orderId: item.orderId,
-        id: item._id,
-        customId,
-      });
-
-      return {
-        id: customId,
-        title: item.orderId,
-        description: `${item.category?.name || ""} - ${
-          item.subCategory?.name || ""
-        } | ${item.brand?.name || ""} | ${item.warranty || ""} | ${
-          item.serviceComment || ""
-        }`,
-      };
-    }) || [];
-
-  console.log("✅ Formatted orders:", JSON.stringify(formattedOrders, null, 2));
-
-  return formattedOrders;
-};
-
-// Send simple text message
+// ========================
+// Message Builders
+// ========================
 const sendTextMessage = (phoneNumberId, to, message) =>
-  axios.post(
-    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`,
-    {
-      messaging_product: "whatsapp",
-      to,
-      text: { body: message },
-    }
-  );
-
-// Updated: sendInteractiveOptions
-const sendInteractiveOptions = (phoneNumberId, to) =>
-  axios.post(
-    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`,
-    {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "list",
-        header: {
-          type: "text",
-          text: `Hi ${to}, welcome to SERVIZ Technician BOT.`,
-        },
-        body: { text: "Please select an option to continue" },
-        action: {
-          button: "Get Orders by Status",
-          sections: [
-            {
-              title: "Your Options",
-              rows: [
-                {
-                  id: createCustomId({ orderStatus: "pendingOrders" }),
-                  title: "Pending Orders",
-                  description: "Not started yet.",
-                },
-                {
-                  id: createCustomId({ orderStatus: "wipOrders" }),
-                  title: "WIP Orders",
-                  description: "In progress.",
-                },
-                {
-                  id: createCustomId({ orderStatus: "completedOrders" }),
-                  title: "Completed Orders",
-                  description: "Recently completed.",
-                },
-              ],
-            },
-          ],
-        },
-      },
-    }
-  );
-
-// Send orders list
-const sendInteractiveOrderList = (phoneNumberId, to, title, orders = []) =>
-  axios.post(
-    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`,
-    {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "list",
-        header: { type: "text", text: title },
-        body: {
-          text: `Here are the ${title.toLowerCase()} orders. Tap below.`,
-        },
-        action: {
-          button: "View Orders",
-          sections: [{ title, rows: orders }],
-        },
-      },
-    }
-  );
-
-// Send detailed order view with buttons
-const sendInteractiveOrderDetails = (
-  phoneNumberId,
-  to,
-  orderData,
-  options = []
-) => {
-  const {
-    orderId,
-    category,
-    subCategory,
-    package: pkg,
-    serviceDateTime,
-    user,
-    address,
-    orderStatus,
-  } = orderData;
-  const formattedDate = new Date(serviceDateTime).toLocaleString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+  axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
+    messaging_product: "whatsapp",
+    to,
+    text: { body: message },
   });
 
-  return axios.post(
-    `https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`,
-    {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "button",
-        header: { type: "text", text: `Order ID: ${orderId}` },
-        body: {
-          text: `📦 *Order Details*\n\n🆔 *Status:* ${orderStatus.state}\n📅 *Schedule:* ${formattedDate}\n\n🔧 *Appliance*\n• ${category?.name} - ${subCategory?.name}\n• Issue: ${pkg?.issue}\n\n👤 *Customer*\n• ${user?.firstName}\n• ${address?.address}, ${address?.city}\n• 📞 ${user?.mobile}`,
-        },
-        footer: { text: "Select below to proceed" },
-        action: { buttons: options },
+const sendInteractiveOptions = (phoneNumberId, to) =>
+  axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "list",
+      header: { type: "text", text: `Hi ${to}, welcome to SERVIZ Technician Bot.` },
+      body: { text: "Please choose an option." },
+      action: {
+        button: "Get Orders",
+        sections: [{
+          title: "Options",
+          rows: [
+            { id: createCustomId({ orderStatus: "pendingOrders" }), title: "Pending Orders", description: "Not yet started." },
+            { id: createCustomId({ orderStatus: "wipOrders" }), title: "WIP Orders", description: "In progress." },
+            { id: createCustomId({ orderStatus: "completedOrders" }), title: "Completed Orders", description: "Finished." },
+          ],
+        }],
       },
-    }
-  );
+    },
+  });
+
+const sendInteractiveList = (phoneNumberId, to, title, sections) =>
+  axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "list",
+      header: { type: "text", text: title },
+      body: { text: `Here are your ${title.toLowerCase()} orders.` },
+      action: { button: "View Orders", sections },
+    },
+  });
+
+const sendInteractiveButtons = (phoneNumberId, to, orderData, buttons) => {
+  const { orderId, category, subCategory, serviceDateTime, user, address, orderStatus } = orderData;
+  const schedule = new Date(serviceDateTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+
+  return axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      header: { type: "text", text: `Order ID: ${orderId}` },
+      body: {
+        text: `📦 Order Details\n\n🆔 Status: ${orderStatus.state}\n📅 Schedule: ${schedule}\n\n🔧 Appliance: ${category?.name} - ${subCategory?.name}\n\n👤 Customer: ${user?.firstName}\n📍 Address: ${address?.address}, ${address?.city}`,
+      },
+      action: { buttons },
+    },
+  });
 };
 
-// Default home route
-app.get("/", (req, res) =>
-  res.status(200).send("✅ WhatsApp Webhook Setup Working!")
-);
+const sendOrderDetailsSummary = async (orderData, phoneNumberId, sender) => {
+  const schedule = new Date(orderData.serviceDateTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+  await sendTextMessage(phoneNumberId, sender, 
+    `📦 *Order Details*\n\n🆔 *Status:* ${orderData.orderStatus.state}\n📅 *Schedule:* ${schedule}\n\n🔧 *Appliance:* ${orderData.category?.name} - ${orderData.subCategory?.name}\n• Issue: ${orderData.pkg?.issue}\n\n👤 *Customer:* ${orderData.user?.firstName}\n• ${orderData.address?.address}, ${orderData.address?.city}\n• 📞 ${orderData.user?.mobile}`);
+};
+
+// Format Orders List
+const formatOrdersList = (orders = []) => 
+  orders.map(order => ({
+    id: createCustomId({ orderStatus: order.orderStatus?.currentStatus, orderId: order.orderId, id: order._id }),
+    title: order.orderId,
+    description: `${order.category?.name || ""} - ${order.subCategory?.name || ""} | ${order.brand?.name || ""} | ${order.warranty || ""} | ${order.serviceComment || ""}`,
+  }));
