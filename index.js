@@ -32,14 +32,18 @@ const api = axios.create({
 });
 
 // ID Helpers
-const createCustomId = (data = {}) =>
-    Object.entries(data)
+const createCustomId = (data = {}) => {
+    const idString = Object.entries(data)
       .filter(([, v]) => v !== undefined && v !== null) // ❗ skip undefined/null
       .map(([k, v]) => `${k}:${encodeURIComponent(v)}`) // ❗ safe encoding
       .join("|");
+    
+    console.log("🛠 Created Custom ID:", idString); // << Log created ID
+    return idString;
+  };
   
-  const parseCustomId = (idString = "") =>
-    idString.split("|").reduce((acc, part) => {
+  const parseCustomId = (idString = "") => {
+    const parsed = idString.split("|").reduce((acc, part) => {
       const separatorIndex = part.indexOf(":");
       if (separatorIndex > -1) {
         const key = part.slice(0, separatorIndex);
@@ -48,6 +52,11 @@ const createCustomId = (data = {}) =>
       }
       return acc;
     }, {});
+    
+    console.log("🛠 Parsed Custom ID:", parsed); // << Log parsed ID
+    return parsed;
+  };
+  
   
   
 
@@ -212,7 +221,7 @@ const handleOrderStatus = async (phoneNumberId, sender, orderData) => {
 // Format order list
 const formatOrders = (data) => 
   data?.payload?.items?.map(item => ({
-    id: createCustomId({ orderStatus: item.orderStatus.state}, item.orderId, item._id), 
+    id: createCustomId({ orderStatus: item.orderStatus.currentStatus}, item.orderId, item._id), 
     title: item.orderId,
     description: `${item.category?.name || ''} - ${item.subCategory?.name || ''} | ${item.brand?.name || ''} | ${item.warranty || ''} | ${item.serviceComment || ''}`
   })) || [];
