@@ -212,7 +212,7 @@ const handleOrderStatus = async (phoneNumberId, sender, orderData) => {
 // Format order list
 const formatOrders = (data) => 
   data?.payload?.items?.map(item => ({
-    id: item._id,
+    id: createCustomId({ orderStatus: item.orderStatus.state}, item.orderId, item._id), 
     title: item.orderId,
     description: `${item.category?.name || ''} - ${item.subCategory?.name || ''} | ${item.brand?.name || ''} | ${item.warranty || ''} | ${item.serviceComment || ''}`
   })) || [];
