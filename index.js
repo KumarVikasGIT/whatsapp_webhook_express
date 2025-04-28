@@ -188,7 +188,7 @@ const fetchOrderDetails = async (id) => {
 const handleOrderStatus = async (phoneNumberId, sender, orderData) => {
   if (!orderData) throw new Error("No order data found");
 
-  const { currentStatus, orderId, _id } = orderData;
+  const { currentStatus, orderId, _id } = orderData.payload;
 
   const optionsMap = {
     technician_assigned: [
