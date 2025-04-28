@@ -188,7 +188,7 @@ const fetchOrderDetails = async (id) => {
 const handleOrderStatus = async (phoneNumberId, sender, orderData) => {
   if (!orderData) throw new Error("No order data found");
 
-  const { currentStatus, orderId, _id } = orderData.payload;
+  const { orderStatus, orderId, _id } = orderData.payload;
 
   const optionsMap = {
     technician_assigned: [
@@ -207,7 +207,7 @@ const handleOrderStatus = async (phoneNumberId, sender, orderData) => {
     ]
   };
 
-  const options = optionsMap[currentStatus]?.map(opt => ({
+  const options = optionsMap[orderStatus]?.map(opt => ({
     type: "reply",
     reply: {
       id: createCustomId({ orderStatus: opt.status, orderId, _id }),
