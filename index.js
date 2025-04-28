@@ -226,12 +226,12 @@ const formatOrders = (data) => {
       const customId = createCustomId({
         orderStatus: item.orderStatus?.currentStatus,
         orderId: item.orderId,
-        _id: item._id
+        id: item._id
       });
   
       console.log("🛠 Created ID for order:", {
         orderId: item.orderId,
-        _id: item._id,
+        id: item._id,
         customId
       });
   
