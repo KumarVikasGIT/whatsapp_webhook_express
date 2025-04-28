@@ -219,12 +219,34 @@ const handleOrderStatus = async (phoneNumberId, sender, orderData) => {
 };
 
 // Format order list
-const formatOrders = (data) => 
-  data?.payload?.items?.map(item => ({
-    id: createCustomId({ orderStatus: item.orderStatus.currentStatus}, item.orderId, item._id), 
-    title: item.orderId,
-    description: `${item.category?.name || ''} - ${item.subCategory?.name || ''} | ${item.brand?.name || ''} | ${item.warranty || ''} | ${item.serviceComment || ''}`
-  })) || [];
+const formatOrders = (data) => {
+    console.log("📦 Raw order data:", JSON.stringify(data?.payload?.items, null, 2));
+  
+    const formattedOrders = data?.payload?.items?.map(item => {
+      const customId = createCustomId({
+        orderStatus: item.orderStatus?.currentStatus,
+        orderId: item.orderId,
+        _id: item._id
+      });
+  
+      console.log("🛠 Created ID for order:", {
+        orderId: item.orderId,
+        _id: item._id,
+        customId
+      });
+  
+      return {
+        id: customId,
+        title: item.orderId,
+        description: `${item.category?.name || ''} - ${item.subCategory?.name || ''} | ${item.brand?.name || ''} | ${item.warranty || ''} | ${item.serviceComment || ''}`
+      };
+    }) || [];
+  
+    console.log("✅ Formatted orders:", JSON.stringify(formattedOrders, null, 2));
+  
+    return formattedOrders;
+  };
+  
 
 // Send simple text message
 const sendTextMessage = (phoneNumberId, to, message) =>
