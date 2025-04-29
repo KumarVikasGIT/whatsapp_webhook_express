@@ -4,6 +4,8 @@ const bodyParser = require("body-parser");
 const axios = require("axios");
 const { Status, MyOrderStatus } = require("./order_status");
 const { DocType, RequiredDocumentData } = require("./doc_type");
+const path = require('path');
+const fs = require('fs');
 require("dotenv").config();
 
 // Environment Variables
@@ -68,12 +70,12 @@ app.post("/webhook", async (req, res) => {
   const metadata = entry?.metadata;
   const contact = entry?.contacts?.[0];
 
-  console.log("uiuii: "+message.type);
-  console.log("uiuii: "+message);
+  console.log("uiuii: "+JSON.stringify(entry));
 
   if (!message || !metadata || !contact) {
     console.warn("⚠️ Invalid webhook payload");
-    return res.sendStatus(404);
+    res.sendStatus(404);
+    return;
   }
 
   const { phone_number_id: phoneNumberId } = metadata;
@@ -87,17 +89,27 @@ app.post("/webhook", async (req, res) => {
       const replyTitle = reply?.title;
 
       await handleInteractiveMessage(replyId, replyTitle, phoneNumberId, sender);
-      return res.sendStatus(200);
+      res.sendStatus(200);
+      return;
+    }
+
+    if(message.type==="image"){
+        console.log("uiuii: ");
+
+        downloadAndSaveImage(message.image.id )
+        res.sendStatus(200);
+        return;
     }
 
     // Fallback: show default menu
     await sendInteractiveOptions(phoneNumberId, sender);
-    return res.sendStatus(200);
-    
+    res.sendStatus(200);
+    return;
   } catch (error) {
     console.error("❌ Webhook Processing Error:", error?.response?.data || error.message);
     await sendTextMessage(phoneNumberId, sender, "We are unable to process your request. Please try again later.");
-    return res.sendStatus(500);
+    res.sendStatus(500);
+    return;
   }
 });
 
@@ -195,11 +207,11 @@ const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sen
   
       // Otherwise, continue to fetch updated order details and show options
       const orderData = await fetchOrderDetails(data.payload.order._id);
-      await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+      return await handleOrderStatusOptions(phoneNumberId, sender, orderData);
   
     } catch (error) {
       console.error("❌ updateOrderStatus error:", error?.response?.data || error.message);
-      await sendTextMessage(phoneNumberId, sender, "Failed to update order status. Please try again later.");
+     return await sendTextMessage(phoneNumberId, sender, "Failed to update order status. Please try again later.");
     }
   };  
 
@@ -234,13 +246,13 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
       return;
     }
 
-    await sendInteractiveList(phoneNumberId, sender, replyTitle, sections);
+    return await sendInteractiveList(phoneNumberId, sender, replyTitle, sections);
   } else {
     const orders = await fetchOrdersByStatus(status);
     if (orders.length === 0) {
-      await sendTextMessage(phoneNumberId, sender, "No orders found at this time.");
+     return await sendTextMessage(phoneNumberId, sender, "No orders found at this time.");
     } else {
-      await sendInteractiveList(phoneNumberId, sender, replyTitle, [{ title: replyTitle, rows: orders }]);
+     return await sendInteractiveList(phoneNumberId, sender, replyTitle, [{ title: replyTitle, rows: orders }]);
     }
   }
 };
@@ -385,3 +397,43 @@ const formatOrdersList = (orders = []) =>
     title: order.orderId,
     description: `${order.category?.name || ""} - ${order.subCategory?.name || ""} | ${order.brand?.name || ""} | ${order.warranty || ""} | ${order.serviceComment || ""}`,
   }));
+
+  // download and save image
+  async function downloadAndSaveImage(mediaId) {
+    try {
+      // 1. Get media URL
+      const mediaInfo = await axios.get(`https://graph.facebook.com/v19.0/${mediaId}`, {
+        headers: {
+          Authorization: `Bearer ${TOKEN}`
+        }
+      });
+  
+      const imageUrl = mediaInfo.data.url;
+      console.log('Image URL:', imageUrl);
+  
+      // 2. Download the image
+      const response = await axios.get(imageUrl, {
+        headers: {
+          Authorization: `Bearer ${TOKEN}`
+        },
+        responseType: 'stream' // important: so we can pipe the data to file
+      });
+  
+      // 3. Save to local disk
+      const filePath = path.join(`${__dirname}/uploads`, `${mediaId}.jpg`); // or any folder you want
+      const writer = fs.createWriteStream(filePath);
+  
+      response.data.pipe(writer);
+  
+      writer.on('finish', () => {
+        console.log('✅ Image successfully saved to', filePath);
+      });
+  
+      writer.on('error', (err) => {
+        console.error('❌ Error saving image:', err);
+      });
+  
+    } catch (error) {
+      console.error('❌ Error downloading image:', error.response?.data || error.message);
+    }
+  }
