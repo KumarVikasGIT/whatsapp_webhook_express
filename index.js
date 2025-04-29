@@ -3,6 +3,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 const { Status, MyOrderStatus } = require("./order_status");
+const { DocType, RequiredDocumentData } = require("./doc_type");
 require("dotenv").config();
 
 // Environment Variables
@@ -67,6 +68,9 @@ app.post("/webhook", async (req, res) => {
   const metadata = entry?.metadata;
   const contact = entry?.contacts?.[0];
 
+  console.log("uiuii: "+message.type);
+  console.log("uiuii: "+message);
+
   if (!message || !metadata || !contact) {
     console.warn("⚠️ Invalid webhook payload");
     return res.sendStatus(404);
@@ -114,6 +118,8 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
     pendingOrders: "technician_assigned",
     wipOrders: "technician_working",
     completedOrders: "technician_work_completed",
+    uploadDocument: "uploadDocument",
+    verifyDocument:"verifyDocument"
   };
 
   if (updateStatusMap[replyId.orderStatus]) {
@@ -122,6 +128,20 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
   }
 
   if (orderStatusMap[replyId.orderStatus]) {
+    if(orderStatusMap[replyId.orderStatus]==="uploadDocument"){
+        return await sendInteractiveDocumentButtons(phoneNumberId,sender,"Upload Document","Please upload these required documents to Continue:\n\n1. Device Photo\n2. Serial Number\n3. Invoice Photo\n\nPlease upload images with the name mensioned above.",
+            [
+                {
+                    type: "reply",
+                    reply: { 
+                        id: createCustomId({ orderStatus: "verifyDocument"}), 
+                        title: "Verify DOduments"
+                }
+                }
+            ]
+        );
+    }
+
     return await sendOrderSections(orderStatusMap[replyId.orderStatus], replyTitle, phoneNumberId, sender);
   }
 
@@ -140,30 +160,48 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
 // Order Actions
 // ========================
 const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sender) => {
-  try {
-    const { data } = await api.post(BASE_URL_STATUS, {
-      order: { orderId: replyId.orderId, _id: replyId.id },
-      lastStatus,
-      currentStatus: status.statusCode,
-      state: status.state,
-      statusChangeFrom: "admin",
-      changeFrom: "admin",
-      user: {
-        _id: "6464bf7e4f51a5937348796f",
-        email: "9934012217@serviz.com",
-        firstName: "Rahul",
-      },
-    });
-
-    if (!data?.payload) throw new Error("Invalid API response");
-
-    console.log("✅ Order status updated:", data.payload._id);
-    await sendTextMessage(phoneNumberId, sender, "Order status updated successfully.");
-  } catch (error) {
-    console.error("❌ updateOrderStatus error:", error?.response?.data || error.message);
-    await sendTextMessage(phoneNumberId, sender, "Failed to update order status.");
-  }
-};
+    try {
+      const { data } = await api.post(BASE_URL_STATUS, {
+        order: { orderId: replyId.orderId, _id: replyId.id },
+        lastStatus,
+        currentStatus: status.statusCode,
+        state: status.state,
+        statusChangeFrom: "admin",
+        changeFrom: "admin",
+        user: {
+          _id: "6464bf7e4f51a5937348796f",
+          email: "9934012217@serviz.com",
+          firstName: "Rahul",
+        },
+      });
+  
+      if (!data?.payload) throw new Error("Invalid API response");
+  
+      console.log("✅ Order status updated:", data.payload._id);
+  
+      // Inform user order updated
+      await sendTextMessage(phoneNumberId, sender, "Order status updated successfully.");
+  
+      // Handle specific cases
+      if (status.state === "technician_rejected") {
+        await sendTextMessage(phoneNumberId, sender, "You no longer have access to this order.");
+        return; // Stop further processing
+      }
+  
+      if (status.state === "technician_work_completed") {
+        await sendTextMessage(phoneNumberId, sender, "You have successfully completed your order. Say 'Hi' to start a new order.");
+        return; // Stop further processing
+      }
+  
+      // Otherwise, continue to fetch updated order details and show options
+      const orderData = await fetchOrderDetails(data.payload.order._id);
+      await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+  
+    } catch (error) {
+      console.error("❌ updateOrderStatus error:", error?.response?.data || error.message);
+      await sendTextMessage(phoneNumberId, sender, "Failed to update order status. Please try again later.");
+    }
+  };  
 
 const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
   const sectionConfigs = {
@@ -237,9 +275,12 @@ const handleOrderStatusOptions = async (phoneNumberId, sender, orderData) => {
       { status: "technicianWIP", title: "Update Status" },
     ],
     technician_working: [
-      { status: "makePartRequest", title: "Request Part" },
-      { status: "makeMarkComplete", title: "Mark Work Complete" },
-    ],
+        { status: "uploadDocument", title: "Upload Document" },
+      ],
+    // technician_working: [
+    //   { status: "makePartRequest", title: "Request Part" },
+    //   { status: "makeMarkComplete", title: "Mark Work Complete" },
+    // ],
   }[orderStatus.currentStatus] || [];
 
   const buttons = options.map(opt => ({
@@ -314,6 +355,22 @@ const sendInteractiveButtons = (phoneNumberId, to, orderData, buttons) => {
     },
   });
 };
+
+const sendInteractiveDocumentButtons = (phoneNumberId, to ,title, body, buttons) => {  
+    return axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
+      messaging_product: "whatsapp",
+      to,
+      type: "interactive",
+      interactive: {
+        type: "button",
+        header: { type: "text", text: title },
+        body: {
+          text: body,
+        },
+        action: { buttons },
+      },
+    });
+  };
 
 const sendOrderDetailsSummary = async (orderData, phoneNumberId, sender) => {
   const schedule = new Date(orderData.serviceDateTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
