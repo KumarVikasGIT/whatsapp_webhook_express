@@ -61,26 +61,54 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// ========================
-// Webhook Handler
-// ========================
 app.post("/webhook", async (req, res) => {
-  const entry = req.body?.entry?.[0]?.changes?.[0]?.value;
-  const message = entry?.messages?.[0];
-  const metadata = entry?.metadata;
-  const contact = entry?.contacts?.[0];
+  const body = req.body;
 
-  console.log("uiuii: "+JSON.stringify(entry));
+  // Validate WhatsApp object
+  if (body.object !== 'whatsapp_business_account') {
+    return res.sendStatus(404);
+  }
+
+  const entry = body.entry?.[0];
+  const changes = entry?.changes?.[0];
+  const value = changes?.value;
+
+  // ========================
+  // 1. Handle Message Statuses
+  // ========================
+  const statuses = value?.statuses;
+  if (statuses && statuses.length > 0) {
+    const statusInfo = statuses[0];
+    const messageId = statusInfo.id;
+    const status = statusInfo.status;
+    const recipient = statusInfo.recipient_id;
+    const timestamp = statusInfo.timestamp;
+
+    console.log(`📩 Message ${messageId} to ${recipient} is ${status} at ${timestamp}`);
+    return res.sendStatus(200); // Exit early after handling status
+  }
+
+  // ========================
+  // 2. Handle Incoming Messages
+  // ========================
+  const message = value?.messages?.[0];
+  const metadata = value?.metadata;
+  const contact = value?.contacts?.[0];
 
   if (!message || !metadata || !contact) {
     console.warn("⚠️ Invalid webhook payload");
-    res.sendStatus(404);
-    return;
+    return res.sendStatus(404);
   }
 
-  const { phone_number_id: phoneNumberId } = metadata;
+  const phoneNumberId = metadata.phone_number_id;
   const sender = message.from;
   const senderName = contact.profile?.name || "Unknown";
+
+  const requiredDocuments = {
+    invoice: RequiredDocumentData.invoice,
+    device: RequiredDocumentData.devicePhoto,
+    serial: RequiredDocumentData.serialNo,
+  };
 
   try {
     if (message.type === "interactive") {
@@ -89,29 +117,36 @@ app.post("/webhook", async (req, res) => {
       const replyTitle = reply?.title;
 
       await handleInteractiveMessage(replyId, replyTitle, phoneNumberId, sender);
-      res.sendStatus(200);
-      return;
+      return res.sendStatus(200);
     }
 
-    if(message.type==="image"){
-        console.log("uiuii: ");
+    if (message.type === "image") {
+      const caption = message.image.caption?.trim().toLowerCase();
 
-        downloadAndSaveImage(message.image.id )
-        res.sendStatus(200);
-        return;
+      if (!caption || !requiredDocuments[caption]) {
+        await sendTextMessage(
+          phoneNumberId,
+          sender,
+          "Document name not found or invalid. Please reupload the image with a valid document name (e.g., invoice, serial, device)."
+        );
+        return res.sendStatus(200);
+      }
+
+      await downloadAndSaveImage(message.image.id); // ensure this is async if needed
+      return res.sendStatus(200);
     }
 
-    // Fallback: show default menu
+    // Default fallback: send menu
     await sendInteractiveOptions(phoneNumberId, sender);
-    res.sendStatus(200);
-    return;
+    return res.sendStatus(200);
+
   } catch (error) {
     console.error("❌ Webhook Processing Error:", error?.response?.data || error.message);
     await sendTextMessage(phoneNumberId, sender, "We are unable to process your request. Please try again later.");
-    res.sendStatus(500);
-    return;
+    return res.sendStatus(500);
   }
 });
+
 
 // ========================
 // Handlers
