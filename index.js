@@ -8,6 +8,8 @@ const path = require('path');
 const fs = require('fs');
 require("dotenv").config();
 
+const userStore = {}; // Replace with Redis or DB in production
+
 // Environment Variables
 const {
   TOKEN,
@@ -111,6 +113,67 @@ app.post("/webhook", async (req, res) => {
   };
 
   try {
+
+     // ========================
+  // 0. OTP Verification Step
+  // ========================
+  const messageText = message?.text?.body?.trim();
+  const userState = await getUserState(sender); // get from DB/cache
+  
+  if (!userState || userState === 'initial') {
+    await setUserState(sender, 'awaiting_phone');
+    await sendTextMessage(phoneNumberId, sender, "📱 Please enter your registered mobile number.");
+    return res.sendStatus(200);
+  }
+  
+  if (userState === 'awaiting_phone') {
+    if (!/^\d{10}$/.test(messageText)) {
+      await sendTextMessage(phoneNumberId, sender, "❌ Invalid number. Please enter a valid 10-digit mobile number.");
+      return res.sendStatus(200);
+    }
+  
+    await setUserPhone(sender, messageText);
+    const otp = await generateAndSendOTP(sender, phoneNumberId, messageText);
+    await setUserState(sender, 'awaiting_otp');
+    await sendTextMessage(phoneNumberId, sender, "✅ OTP has been sent successfully. Please enter the OTP.");
+    return res.sendStatus(200);
+  }
+  
+  if (userState === 'awaiting_otp') {
+    if (messageText.toLowerCase() === 'resend') {
+      const phone = userStore[sender]?.phone;
+      if (!phone) {
+        await sendTextMessage(phoneNumberId, sender, "⚠️ Phone number not found. Please re-enter your number.");
+        await setUserState(sender, 'awaiting_phone');
+        return res.sendStatus(200);
+      }
+  
+      const otp = await generateAndSendOTP(sender, phoneNumberId, phone);
+      await sendTextMessage(phoneNumberId, sender, "🔄 OTP has been resent. Please enter the new OTP.");
+      return res.sendStatus(200);
+    }
+  
+    const isValidOtp = await verifyOTP(sender, messageText);
+    if (!isValidOtp) {
+      const retries = (userStore[sender].otpRetries || 0) + 1;
+      userStore[sender].otpRetries = retries;
+  
+      if (retries >= 3) {
+        await sendTextMessage(phoneNumberId, sender, "❌ Too many incorrect attempts. Please type 'resend' to get a new OTP.");
+      } else {
+        await sendTextMessage(phoneNumberId, sender, `❌ Invalid OTP. Attempt ${retries}/3. Try again or type 'resend' to get a new OTP.`);
+      }
+      return res.sendStatus(200);
+    }
+  
+    await setUserState(sender, 'verified');
+    userStore[sender].otpRetries = 0; // Reset retry counter
+    await sendTextMessage(phoneNumberId, sender, "✅ OTP verified successfully. How can I help you today?");
+     // Default fallback: send menu
+     await sendInteractiveOptions(phoneNumberId, sender);
+    return res.sendStatus(200);
+  }  
+  
     if (message.type === "interactive") {
       const reply = message.interactive.list_reply || message.interactive.button_reply;
       const replyId = parseCustomId(reply?.id);
@@ -471,4 +534,30 @@ const formatOrdersList = (orders = []) =>
     } catch (error) {
       console.error('❌ Error downloading image:', error.response?.data || error.message);
     }
+  }
+
+  async function getUserState(sender) {
+    return userStore[sender]?.state || 'initial';
+  }
+  
+  async function setUserState(sender, state) {
+    if (!userStore[sender]) userStore[sender] = {};
+    userStore[sender].state = state;
+  }
+  
+  async function setUserPhone(sender, phone) {
+    userStore[sender].phone = phone;
+  }
+  
+  async function generateAndSendOTP(sender, phoneNumberId, phone) {
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    userStore[sender].otp = otp;
+    userStore[sender].otpExpiry = Date.now() + 5 * 60 * 1000; // 5 minutes
+    await sendTextMessage(phoneNumberId, sender, `🔐 Your OTP is: ${otp}`);
+    return otp;
+  }
+  
+  async function verifyOTP(sender, otp) {
+    const user = userStore[sender];
+    return user?.otp === otp && Date.now() <= user.otpExpiry;
   }
