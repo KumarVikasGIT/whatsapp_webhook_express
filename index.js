@@ -259,7 +259,7 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
   }
 
   if (/^SRVZ-ORD-\d{9,10}$/i.test(replyTitle)) {
-    const orderData = await fetchOrderDetails(replyId.id);
+    const orderData = await fetchOrderDetails(replyId.id, sender);
     if (replyId.orderStatus === "technician_work_completed") {
       return await sendOrderDetailsSummary(orderData, phoneNumberId, sender);
     }
@@ -313,7 +313,7 @@ const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sen
       }
   
       // Otherwise, continue to fetch updated order details and show options
-      const orderData = await fetchOrderDetails(data.payload.order._id);
+      const orderData = await fetchOrderDetails(data.payload.order._id, sender);
       return await handleOrderStatusOptions(phoneNumberId, sender, orderData);
   
     } catch (error) {
@@ -342,7 +342,7 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
     const sections = [];
 
     for (const config of sectionConfigs[status]) {
-      const orders = await fetchOrdersByStatus(config.statusCode);
+      const orders = await fetchOrdersByStatus(config.statusCode, sender);
       if (orders.length > 0) {
         sections.push({ title: config.title, rows: orders });
       }
@@ -355,7 +355,7 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
 
     return await sendInteractiveList(phoneNumberId, sender, replyTitle, sections);
   } else {
-    const orders = await fetchOrdersByStatus(status);
+    const orders = await fetchOrdersByStatus(status, sender);
     if (orders.length === 0) {
      return await sendTextMessage(phoneNumberId, sender, "No orders found at this time.");
     } else {
@@ -364,7 +364,7 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
   }
 };
 
-const fetchOrdersByStatus = async (status) => {
+const fetchOrdersByStatus = async (status, sender) => {
   try {
     const { data } = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${userStore[sender].userId}`,  {
       headers: {
@@ -379,7 +379,7 @@ const fetchOrdersByStatus = async (status) => {
   }
 };
 
-const fetchOrderDetails = async (id) => {
+const fetchOrderDetails = async (id, sender) => {
   const { data } = await api.get(`${BASE_URL_ORDERS}/${id}`, {
     headers: {
       "Content-Type": "application/json",
@@ -405,6 +405,8 @@ const handleOrderStatusOptions = async (phoneNumberId, sender, orderData) => {
     ],
     technician_working: [
         { status: "uploadDocument", title: "Upload Document" },
+        { status: "makePartRequest", title: "Make Part Request" },
+        { status: "makeMarkComplete", title: "Mark Work Complete" }
       ],
     // technician_working: [
     //   { status: "makePartRequest", title: "Request Part" },
