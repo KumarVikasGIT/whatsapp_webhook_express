@@ -16,6 +16,7 @@ const {
   MYTOKEN: VERIFY_TOKEN,
   BASE_URL_STATUS,
   BASE_URL_ORDERS,
+  BASE_URL_SC,
   AUTH_TOKEN,
   TECHNICIAN,
   PORT = 3000,
@@ -29,12 +30,7 @@ app.use(bodyParser.json());
 app.listen(PORT, () => console.log(`✅ Webhook server running on port ${PORT}`));
 
 // Axios Instance
-const api = axios.create({
-  headers: {
-    "Content-Type": "application/json",
-    Authorization: AUTH_TOKEN,
-  },
-});
+const api = axios.create();
 
 // Utilities: ID Management
 const createCustomId = (data = {}) =>
@@ -133,11 +129,18 @@ app.post("/webhook", async (req, res) => {
     }
   
     await setUserPhone(sender, messageText);
-    const otp = await generateAndSendOTP(sender, phoneNumberId, messageText);
-    await setUserState(sender, 'awaiting_otp');
-    await sendTextMessage(phoneNumberId, sender, "✅ OTP has been sent successfully. Please enter the OTP.");
+  
+    try {
+      await generateAndSendOTP(sender, phoneNumberId, messageText);
+      await setUserState(sender, 'awaiting_otp');
+      await sendTextMessage(phoneNumberId, sender, "✅ OTP has been sent successfully. Please enter the OTP.");
+    } catch (err) {
+      // Already handled inside generateAndSendOTP
+    }
+  
     return res.sendStatus(200);
   }
+  
   
   if (userState === 'awaiting_otp') {
     if (messageText.toLowerCase() === 'resend') {
@@ -148,12 +151,12 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
   
-      const otp = await generateAndSendOTP(sender, phoneNumberId, phone);
+      await generateAndSendOTP(sender, phoneNumberId, phone);
       await sendTextMessage(phoneNumberId, sender, "🔄 OTP has been resent. Please enter the new OTP.");
       return res.sendStatus(200);
     }
   
-    const isValidOtp = await verifyOTP(sender, messageText);
+    const isValidOtp = await verifyOTP(messageText, userStore[sender]?.phone, sender);
     if (!isValidOtp) {
       const retries = (userStore[sender].otpRetries || 0) + 1;
       userStore[sender].otpRetries = retries;
@@ -283,6 +286,12 @@ const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sen
           email: "9934012217@serviz.com",
           firstName: "Rahul",
         },
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: userStore[sender].token,
+        },
       });
   
       if (!data?.payload) throw new Error("Invalid API response");
@@ -357,7 +366,12 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
 
 const fetchOrdersByStatus = async (status) => {
   try {
-    const { data } = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${TECHNICIAN}`);
+    const { data } = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${userStore[sender].userId}`,  {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: userStore[sender].token,
+      },
+    });
     return formatOrdersList(data?.payload?.items || []);
   } catch (error) {
     console.error("❌ fetchOrdersByStatus error:", error?.response?.data || error.message);
@@ -366,7 +380,12 @@ const fetchOrdersByStatus = async (status) => {
 };
 
 const fetchOrderDetails = async (id) => {
-  const { data } = await api.get(`${BASE_URL_ORDERS}/${id}`);
+  const { data } = await api.get(`${BASE_URL_ORDERS}/${id}`, {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: userStore[sender].token,
+    },
+  });
   return data?.payload;
 };
 
@@ -550,14 +569,34 @@ const formatOrdersList = (orders = []) =>
   }
   
   async function generateAndSendOTP(sender, phoneNumberId, phone) {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    userStore[sender].otp = otp;
-    userStore[sender].otpExpiry = Date.now() + 5 * 60 * 1000; // 5 minutes
-    await sendTextMessage(phoneNumberId, sender, `🔐 Your OTP is: ${otp}`);
-    return otp;
+    try {  
+      const { data } = await api.post(`${BASE_URL_SC}employee-login-otp/sent`, {
+        mobile: phone,
+      });
+      return data;
+    } catch (error) {
+      console.error('Error sending OTP:', error.message || error);
+      await sendTextMessage(phoneNumberId, sender, `❌ Failed to send OTP: Please try again later`);
+      throw error; // rethrow to allow the caller to know it failed
+    }
   }
   
-  async function verifyOTP(sender, otp) {
-    const user = userStore[sender];
-    return user?.otp === otp && Date.now() <= user.otpExpiry;
+  
+  async function verifyOTP(otp, phone, sender) {
+    try {  
+      const { data } = await api.post(`${BASE_URL_SC}employee-login-otp/confirm`, {
+        mobile: phone,
+        otp:otp
+      },
+    );
+      userStore[sender].token=data.payload.token;
+      userStore[sender].userId=data.payload.userId;
+      console.error('OTP:', JSON.stringify(data));
+      return data.status;
+    } catch (error) {
+      console.error('Error verify OTP:', error.message || error);
+      console.error('OTP:', JSON.stringify(error));
+      // await sendTextMessage(phoneNumberId, sender, `❌ Failed to Verify: ${error.message || 'Please try again later.'}`);
+      return false;
+    }
   }
