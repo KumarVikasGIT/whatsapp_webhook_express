@@ -255,6 +255,7 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
         );
     }
 
+    console.log("hhh", orderStatusMap[replyId.orderStatus]);
     return await sendOrderSections(orderStatusMap[replyId.orderStatus], replyTitle, phoneNumberId, sender);
   }
 
@@ -307,6 +308,9 @@ const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sen
         return; // Stop further processing
       }
   
+      print("ioioi, ", status.state === "technician_work_completed")
+      print("ioioi, ", status.state)
+
       if (status.state === "technician_work_completed") {
         await sendTextMessage(phoneNumberId, sender, "You have successfully completed your order. Say 'Hi' to start a new order.");
         return; // Stop further processing
@@ -335,6 +339,9 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
       { title: "Assigned Orders", statusCode: "technician_assigned" },
       { title: "Reassigned Orders", statusCode: "technician_reassigned" },
       { title: "Accepted Orders", statusCode: "technician_accepted" },
+    ],
+    technician_work_completed: [
+      { title: "Completed Orders", statusCode: "technician_work_completed" },
     ],
   };
 
@@ -390,9 +397,15 @@ const fetchOrderDetails = async (id, sender) => {
 };
 
 const handleOrderStatusOptions = async (phoneNumberId, sender, orderData) => {
-  const { orderId, _id, orderStatus } = orderData;
+  if (!orderData || !orderData.orderStatus || !orderData.orderStatus.currentStatus) {
+    console.warn("⚠️ Missing or invalid order status data:", orderData);
+    return await sendTextMessage(phoneNumberId, sender, "⚠️ Unable to display options due to missing order status.");
+  }
 
-  const options = {
+  const { orderId, _id, orderStatus } = orderData;
+  const currentStatus = orderStatus.currentStatus;
+
+  const statusOptionsMap = {
     technician_assigned: [
       { status: "acceptOrder", title: "Accept Order" },
       { status: "rejectOrder", title: "Reject Order" },
@@ -404,19 +417,30 @@ const handleOrderStatusOptions = async (phoneNumberId, sender, orderData) => {
       { status: "technicianWIP", title: "Update Status" },
     ],
     technician_working: [
-        { status: "uploadDocument", title: "Upload Document" },
-        { status: "makePartRequest", title: "Make Part Request" },
-        { status: "makeMarkComplete", title: "Mark Work Complete" }
-      ],
-    // technician_working: [
-    //   { status: "makePartRequest", title: "Request Part" },
-    //   { status: "makeMarkComplete", title: "Mark Work Complete" },
-    // ],
-  }[orderStatus.currentStatus] || [];
+      { status: "uploadDocument", title: "Upload Document" },
+      { status: "makePartRequest", title: "Make Part Request" },
+      { status: "makeMarkComplete", title: "Mark Work Complete" },
+    ],
+  };
+
+  const options = statusOptionsMap[currentStatus] || [];
+
+  if (options.length === 0) {
+    console.log(`ℹ️ No interactive options for status: ${currentStatus}`);
+    return await sendTextMessage(phoneNumberId, sender, `Order Id: ${orderData.orderId}\nℹ️ Current Status: ${orderStatus.state}. No actions available at this time.`);
+  }
 
   const buttons = options.map(opt => ({
     type: "reply",
-    reply: { id: createCustomId({ orderStatus: opt.status, orderId, id: _id, currentStatus: orderStatus.currentStatus }), title: opt.title },
+    reply: {
+      id: createCustomId({
+        orderStatus: opt.status,
+        orderId,
+        id: _id,
+        currentStatus,
+      }),
+      title: opt.title,
+    },
   }));
 
   return await sendInteractiveButtons(phoneNumberId, sender, orderData, buttons);
@@ -602,3 +626,47 @@ const formatOrdersList = (orders = []) =>
       return false;
     }
   }
+
+  app.post("/document-upload", async (req, res) => {
+    try {
+      const { id, orderID, sender, status, phoneNumberId } = req.body;
+  
+      console.log("📥 Received document upload request:", JSON.stringify(req.body));
+  
+      if (!id || !orderID || !sender || !phoneNumberId) {
+        console.warn("⚠️ Missing required fields in document-upload payload.");
+        return res.status(400).send("Missing required fields.");
+      }
+  
+      if (status) {
+        // 1. Acknowledge successful upload
+        await sendTextMessage(phoneNumberId, sender, `✅ Document uploaded successfully for Order ${orderID}.`);
+  
+        // 2. Fetch order details
+        try {
+          const orderData = await fetchOrderDetails(id, sender);
+  
+          if (!orderData) {
+            await sendTextMessage(phoneNumberId, sender, "⚠️ Document uploaded, but order data could not be found.");
+            return res.sendStatus(200);
+          }
+  
+          if (orderData.orderStatus.currentStatus === "technician_work_completed") {
+            await sendOrderDetailsSummary(orderData, phoneNumberId, sender);
+            return res.sendStatus(200);
+          }
+
+          // 3. Send order status/options
+          await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+        } catch (fetchError) {
+          console.error("❌ Error fetching order data:", fetchError.message);
+          await sendTextMessage(phoneNumberId, sender, "⚠️ Upload successful, but failed to retrieve order details.");
+        }
+      }
+  
+      res.sendStatus(200);
+    } catch (error) {
+      console.error("🔥 document-upload error:", error.message);
+      res.status(500).send("Internal Server Error");
+    }
+  });
