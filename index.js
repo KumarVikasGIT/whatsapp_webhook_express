@@ -1,5 +1,5 @@
-// server.js
 const express = require("express");
+const cors = require("cors");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 const { Status, MyOrderStatus } = require("./order_status");
@@ -24,6 +24,9 @@ const {
 
 // Express App Setup
 const app = express();
+app.use(cors()); // Allow all origins (for testing, this is okay)
+
+app.use(express.json());
 app.use(bodyParser.json());
 
 // Start server
@@ -110,7 +113,7 @@ app.post("/webhook", async (req, res) => {
 
   try {
 
-     // ========================
+  // ========================
   // 0. OTP Verification Step
   // ========================
   const messageText = message?.text?.body?.trim();
@@ -242,17 +245,19 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
 
   if (orderStatusMap[replyId.orderStatus]) {
     if(orderStatusMap[replyId.orderStatus]==="uploadDocument"){
-        return await sendInteractiveDocumentButtons(phoneNumberId,sender,"Upload Document","Please upload these required documents to Continue:\n\n1. Device Photo\n2. Serial Number\n3. Invoice Photo\n\nPlease upload images with the name mensioned above.",
-            [
-                {
-                    type: "reply",
-                    reply: { 
-                        id: createCustomId({ orderStatus: "verifyDocument"}), 
-                        title: "Verify DOduments"
-                }
-                }
-            ]
-        );
+        return await sendInteractiveCtaUrlMessage(phoneNumberId,sender,"Please upload these required documents to Continue:\n\n1. Device Photo\n2. Serial Number\n3. Invoice Photo\n\nPlease upload images with the name mensioned above.","Upload Document", `https://kumarvikasgit.github.io/technician-bot-forms/upload-document?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNumberId=${phoneNumberId}`);
+
+        // return await sendInteractiveDocumentButtons(phoneNumberId,sender,"Upload Document","Please upload these required documents to Continue:\n\n1. Device Photo\n2. Serial Number\n3. Invoice Photo\n\nPlease upload images with the name mensioned above.",
+        //     [
+        //         {
+        //             type: "reply",
+        //             reply: { 
+        //                 id: createCustomId({ orderStatus: "verifyDocument"}), 
+        //                 title: "Verify DOduments"
+        //         }
+        //         }
+        //     ]
+        // );
     }
 
     console.log("hhh", orderStatusMap[replyId.orderStatus]);
@@ -307,9 +312,6 @@ const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sen
         await sendTextMessage(phoneNumberId, sender, "You no longer have access to this order.");
         return; // Stop further processing
       }
-  
-      print("ioioi, ", status.state === "technician_work_completed")
-      print("ioioi, ", status.state)
 
       if (status.state === "technician_work_completed") {
         await sendTextMessage(phoneNumberId, sender, "You have successfully completed your order. Say 'Hi' to start a new order.");
@@ -356,7 +358,7 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
     }
 
     if (sections.length === 0) {
-      await sendTextMessage(phoneNumberId, sender, "Currently you have no pending orders. Try again later.");
+      await sendTextMessage(phoneNumberId, sender, "Currently you have no pending orders. Please check after some time.");
       return;
     }
 
@@ -527,6 +529,36 @@ const sendInteractiveDocumentButtons = (phoneNumberId, to ,title, body, buttons)
     });
   };
 
+const sendInteractiveCtaUrlMessage = (phoneNumberId, to, bodyText, buttonText, buttonUrl) => {
+  return axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "cta_url",
+      // header: {
+      //   type: "text",
+      //   text: headerText
+      // },
+      body: {
+        text: bodyText
+      },
+      // footer: {
+      //   text: footerText
+      // },
+      action: {
+        name: "cta_url",
+        parameters: {
+          display_text: buttonText,
+          url: buttonUrl
+        }
+      }
+    }
+  });
+};
+
+
 const sendOrderDetailsSummary = async (orderData, phoneNumberId, sender) => {
   const schedule = new Date(orderData.serviceDateTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
   await sendTextMessage(phoneNumberId, sender, 
@@ -627,46 +659,61 @@ const formatOrdersList = (orders = []) =>
     }
   }
 
-  app.post("/document-upload", async (req, res) => {
+  app.post("/document-upload", cors(),async (req, res) => {
     try {
       const { id, orderID, sender, status, phoneNumberId } = req.body;
   
-      console.log("📥 Received document upload request:", JSON.stringify(req.body));
+      console.log("📥 Received document upload request:", JSON.stringify(req.body, null, 2));
   
-      if (!id || !orderID || !sender || !phoneNumberId) {
-        console.warn("⚠️ Missing required fields in document-upload payload.");
-        return res.status(400).send("Missing required fields.");
+      // Validate presence of required fields
+      const missingFields = [];
+      if (!id) missingFields.push("id");
+      if (!orderID) missingFields.push("orderID");
+      if (!sender) missingFields.push("sender");
+      if (!phoneNumberId) missingFields.push("phoneNumberId");
+  
+      if (missingFields.length > 0) {
+        const errorMsg = `⚠️ Missing required fields: ${missingFields.join(", ")}`;
+        console.warn(errorMsg);
+        return res.status(400).json({ status: false, message: errorMsg });
       }
   
-      if (status) {
-        // 1. Acknowledge successful upload
-        await sendTextMessage(phoneNumberId, sender, `✅ Document uploaded successfully for Order ${orderID}.`);
-  
-        // 2. Fetch order details
+      // Proceed only if status is true
+      if (status === true) {
         try {
+          // 1. Acknowledge successful upload
+          await sendTextMessage(phoneNumberId, sender, `✅ Document uploaded successfully for Order ${orderID}.`);
+  
+          // 2. Fetch order details
           const orderData = await fetchOrderDetails(id, sender);
   
           if (!orderData) {
-            await sendTextMessage(phoneNumberId, sender, "⚠️ Document uploaded, but order data could not be found.");
-            return res.sendStatus(200);
+            const msg = "⚠️ Document uploaded, but order data could not be found.";
+            console.warn(msg);
+            await sendTextMessage(phoneNumberId, sender, msg);
+            return res.status(200).json({ status: true, message: msg });
           }
   
-          if (orderData.orderStatus.currentStatus === "technician_work_completed") {
+          // 3. If work completed, send order summary
+          if (orderData.orderStatus?.currentStatus === "technician_work_completed") {
             await sendOrderDetailsSummary(orderData, phoneNumberId, sender);
-            return res.sendStatus(200);
+            return res.status(200).json({ status: true, message: "Summary sent after work completion." });
           }
-
-          // 3. Send order status/options
+  
+          // 4. Otherwise, show next order status options
           await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+          return res.status(200).json({ status: true, message: "Options sent based on order status." });
+  
         } catch (fetchError) {
-          console.error("❌ Error fetching order data:", fetchError.message);
-          await sendTextMessage(phoneNumberId, sender, "⚠️ Upload successful, but failed to retrieve order details.");
+          console.error("❌ Error during order handling:", fetchError.message);
+          await sendTextMessage(phoneNumberId, sender, "⚠️ Upload successful, but failed to process order.");
+          return res.status(500).json({ status: false, message: "Failed to process order after upload." });
         }
       }
   
-      res.sendStatus(200);
+      return res.status(200).json({ status: true, message: "Upload acknowledged without status = true." });
     } catch (error) {
-      console.error("🔥 document-upload error:", error.message);
-      res.status(500).send("Internal Server Error");
+      console.error("🔥 Unexpected error in /document-upload:", error);
+      return res.status(500).json({ status: false, message: "Internal Server Error" });
     }
-  });
+  });  
