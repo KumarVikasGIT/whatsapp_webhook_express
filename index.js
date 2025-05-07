@@ -639,7 +639,6 @@ const formatOrdersList = (orders = []) =>
     }
   }
   
-  
   async function verifyOTP(otp, phone, sender) {
     try {  
       const { data } = await api.post(`${BASE_URL_SC}employee-login-otp/confirm`, {
@@ -659,7 +658,7 @@ const formatOrdersList = (orders = []) =>
     }
   }
 
-  app.post("/document-upload", cors(),async (req, res) => {
+  app.post("/notify-document-upload", cors(),async (req, res) => {
     try {
       const { id, orderID, sender, status, phoneNumberId } = req.body;
   
@@ -689,6 +688,65 @@ const formatOrdersList = (orders = []) =>
   
           if (!orderData) {
             const msg = "⚠️ Document uploaded, but order data could not be found.";
+            console.warn(msg);
+            await sendTextMessage(phoneNumberId, sender, msg);
+            return res.status(200).json({ status: true, message: msg });
+          }
+  
+          // 3. If work completed, send order summary
+          if (orderData.orderStatus?.currentStatus === "technician_work_completed") {
+            await sendOrderDetailsSummary(orderData, phoneNumberId, sender);
+            return res.status(200).json({ status: true, message: "Summary sent after work completion." });
+          }
+  
+          // 4. Otherwise, show next order status options
+          await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+          return res.status(200).json({ status: true, message: "Options sent based on order status." });
+  
+        } catch (fetchError) {
+          console.error("❌ Error during order handling:", fetchError.message);
+          await sendTextMessage(phoneNumberId, sender, "⚠️ Upload successful, but failed to process order.");
+          return res.status(500).json({ status: false, message: "Failed to process order after upload." });
+        }
+      }
+  
+      return res.status(200).json({ status: true, message: "Upload acknowledged without status = true." });
+    } catch (error) {
+      console.error("🔥 Unexpected error in /document-upload:", error);
+      return res.status(500).json({ status: false, message: "Internal Server Error" });
+    }
+  });  
+
+  app.post("/notify-part-update", cors(), async (req, res) => {
+    try {
+      const { id, orderID, sender, status, phoneNumberId } = req.body;
+  
+      console.log("📥 Received part update request:", JSON.stringify(req.body, null, 2));
+  
+      // Validate presence of required fields
+      const missingFields = [];
+      if (!id) missingFields.push("id");
+      if (!orderID) missingFields.push("orderID");
+      if (!sender) missingFields.push("sender");
+      if (!phoneNumberId) missingFields.push("phoneNumberId");
+  
+      if (missingFields.length > 0) {
+        const errorMsg = `⚠️ Missing required fields: ${missingFields.join(", ")}`;
+        console.warn(errorMsg);
+        return res.status(400).json({ status: false, message: errorMsg });
+      }
+  
+      // Proceed only if status is true
+      if (status === true) {
+        try {
+          // 1. Acknowledge successful upload
+          await sendTextMessage(phoneNumberId, sender, `✅ We receive part update request for Order ${orderID}.`);
+  
+          // 2. Fetch order details
+          const orderData = await fetchOrderDetails(id, sender);
+  
+          if (!orderData) {
+            const msg = "⚠️ Part Updated, but order data could not be found.";
             console.warn(msg);
             await sendTextMessage(phoneNumberId, sender, msg);
             return res.status(200).json({ status: true, message: msg });
