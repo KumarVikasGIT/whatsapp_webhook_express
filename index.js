@@ -227,6 +227,7 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
     technicianReachedLocation: "technician_on_location",
     technicianWIP: "technician_working",
     makePartRequest: "parts_approval_pending",
+    anotherPartRequest: "another_parts_approval_pending",
     makeMarkComplete: "technician_work_completed",
   };
 
@@ -238,7 +239,17 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
     verifyDocument:"verifyDocument"
   };
 
-  if (updateStatusMap[replyId.orderStatus]) {
+  if (updateStatusMap[replyId.orderStatus]) {    /// check status found
+    const orderData = await fetchOrderDetails(replyId.id, sender);
+
+    if(updateStatusMap[replyId.orderStatus]==="parts_approval_pending"){    /// match the value
+      return await sendInteractiveCtaUrlMessage(phoneNumberId,sender,"Make part request\n\n1. Select Required from the Part List.\n2. Select the Part Provider.\n3. Select the Quantity.\n4. Add Serial number of the part.\n5. Upload photo of the part.\n\nAfter filling the details Add part to the list if you required multiple parts you and add more parts into the list or remove then Click on the send part request to update order","Make Part Request", `https://kumarvikasgit.github.io/technician-bot-forms/part-request?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNoId=${phoneNumberId}&category=${orderData.category._id}&brand=${orderData.brand._id}&modelNo=${orderData.modelNo}&currentStatus=technician_working&userId=${userStore[sender].userId}&userName=${userStore[sender].userName}&anotherPart=false`);
+  }
+
+  if(updateStatusMap[replyId.orderStatus]==="another_parts_approval_pending"){    /// match the value
+    return await sendInteractiveCtaUrlMessage(phoneNumberId,sender,"Make part request\n\n1. Select Required from the Part List.\n2. Select the Part Provider.\n3. Select the Quantity.\n4. Add Serial number of the part.\n5. Upload photo of the part.\n\nAfter filling the details Add part to the list if you required multiple parts you and add more parts into the list or remove then Click on the send part request to update order","Make Part Request", `https://kumarvikasgit.github.io/technician-bot-forms/part-request?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNoId=${phoneNumberId}&category=${orderData.category._id}&brand=${orderData.brand._id}&modelNo=${orderData.modelNo}&currentStatus=technician_working&userId=${userStore[sender].userId}&userName=${userStore[sender].userName}&anotherPart=true`);
+}
+
     const status = MyOrderStatus.fromStatusCode(updateStatusMap[replyId.orderStatus]);
     return await updateOrderStatus(replyId, status, replyId.currentStatus, phoneNumberId, sender);
   }
@@ -246,18 +257,6 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
   if (orderStatusMap[replyId.orderStatus]) {
     if(orderStatusMap[replyId.orderStatus]==="uploadDocument"){
         return await sendInteractiveCtaUrlMessage(phoneNumberId,sender,"Please upload these required documents to Continue:\n\n1. Device Photo\n2. Serial Number\n3. Invoice Photo\n\nPlease upload images with the name mensioned above.","Upload Document", `https://kumarvikasgit.github.io/technician-bot-forms/upload-document?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNumberId=${phoneNumberId}`);
-
-        // return await sendInteractiveDocumentButtons(phoneNumberId,sender,"Upload Document","Please upload these required documents to Continue:\n\n1. Device Photo\n2. Serial Number\n3. Invoice Photo\n\nPlease upload images with the name mensioned above.",
-        //     [
-        //         {
-        //             type: "reply",
-        //             reply: { 
-        //                 id: createCustomId({ orderStatus: "verifyDocument"}), 
-        //                 title: "Verify DOduments"
-        //         }
-        //         }
-        //     ]
-        // );
     }
 
     console.log("hhh", orderStatusMap[replyId.orderStatus]);
@@ -423,6 +422,12 @@ const handleOrderStatusOptions = async (phoneNumberId, sender, orderData) => {
       { status: "makePartRequest", title: "Make Part Request" },
       { status: "makeMarkComplete", title: "Mark Work Complete" },
     ],
+    parts_approval_pending: [
+      { status: "anotherPartRequest", title: "Another Part Request" },
+    ],
+    parts_handover_to_tecnician: [
+      { status: "pickUpDefective", title: "Pickup Defective Part" },
+    ],
   };
 
   const options = statusOptionsMap[currentStatus] || [];
@@ -557,7 +562,6 @@ const sendInteractiveCtaUrlMessage = (phoneNumberId, to, bodyText, buttonText, b
     }
   });
 };
-
 
 const sendOrderDetailsSummary = async (orderData, phoneNumberId, sender) => {
   const schedule = new Date(orderData.serviceDateTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
