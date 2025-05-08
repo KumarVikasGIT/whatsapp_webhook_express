@@ -237,46 +237,78 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
     wipOrders: "technician_working",
     completedOrders: "technician_work_completed",
     uploadDocument: "uploadDocument",
-    verifyDocument:"verifyDocument"
+    verifyDocument: "verifyDocument"
   };
 
-  if (updateStatusMap[replyId.orderStatus]) {    /// check status found
+  const sendPartRequestForm = async (isAnotherPart, orderData) => {
+    const partTypeText = isAnotherPart ? "another part" : "a part";
+    const formURL = `https://kumarvikasgit.github.io/technician-bot-forms/part-request?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNoId=${phoneNumberId}&category=${orderData.category._id}&brand=${orderData.brand._id}&modelNo=${orderData.modelNo}&currentStatus=technician_working&userId=${userStore[sender].userId}&userName=${userStore[sender].userName}&anotherPart=${isAnotherPart}`;
+
+    const message = `Make ${partTypeText} request\n\n1. Select Required from the Part List.\n2. Select the Part Provider.\n3. Select the Quantity.\n4. Add Serial number of the part.\n5. Upload photo of the part.\n\nAfter filling the details, add part(s) to the list and click "Send Part Request" to update the order.`;
+
+    return await sendInteractiveCtaUrlMessage(phoneNumberId, sender, message, "Make Part Request", formURL);
+  };
+
+  const handleUpdateStatus = async () => {
+    const statusCode = updateStatusMap[replyId.orderStatus];
     const orderData = await fetchOrderDetails(replyId.id, sender);
 
-    if(updateStatusMap[replyId.orderStatus]==="defective_pickup"){    /// match the value
-      return await sendInteractiveCtaUrlMessage(phoneNumberId,sender,"Please upload these required documents to Continue:\n\n1. Defective Part Photo", "Upload Defective", `https://kumarvikasgit.github.io/technician-bot-forms/defective-pickup?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNumberId=${phoneNumberId}`);
+    switch (statusCode) {
+      case "defective_pickup":
+        return await sendInteractiveCtaUrlMessage(
+          phoneNumberId,
+          sender,
+          "Please upload these required documents to continue:\n\n1. Defective Part Photo",
+          "Upload Defective",
+          `https://kumarvikasgit.github.io/technician-bot-forms/defective-pickup?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNumberId=${phoneNumberId}`
+        );
+
+      case "parts_approval_pending":
+        return await sendPartRequestForm(false, orderData);
+
+      case "another_parts_approval_pending":
+        return await sendPartRequestForm(true, orderData);
+
+      default:
+        const status = MyOrderStatus.fromStatusCode(statusCode);
+        return await updateOrderStatus(replyId, status, replyId.currentStatus, phoneNumberId, sender);
+    }
+  };
+
+  const handleOrderStatusMap = async () => {
+    const mappedStatus = orderStatusMap[replyId.orderStatus];
+
+    if (mappedStatus === "uploadDocument") {
+      const docUrl = `https://kumarvikasgit.github.io/technician-bot-forms/upload-document?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNumberId=${phoneNumberId}`;
+      const docMsg = "Please upload these required documents to continue:\n\n1. Device Photo\n2. Serial Number\n3. Invoice Photo\n\nPlease upload images with the names mentioned above.";
+      return await sendInteractiveCtaUrlMessage(phoneNumberId, sender, docMsg, "Upload Document", docUrl);
     }
 
-    if(updateStatusMap[replyId.orderStatus]==="parts_approval_pending"){    /// match the value
-      return await sendInteractiveCtaUrlMessage(phoneNumberId,sender,"Make part request\n\n1. Select Required from the Part List.\n2. Select the Part Provider.\n3. Select the Quantity.\n4. Add Serial number of the part.\n5. Upload photo of the part.\n\nAfter filling the details Add part to the list if you required multiple parts you and add more parts into the list or remove then Click on the send part request to update order","Make Part Request", `https://kumarvikasgit.github.io/technician-bot-forms/part-request?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNoId=${phoneNumberId}&category=${orderData.category._id}&brand=${orderData.brand._id}&modelNo=${orderData.modelNo}&currentStatus=technician_working&userId=${userStore[sender].userId}&userName=${userStore[sender].userName}&anotherPart=false`);
-  }
+    return await sendOrderSections(mappedStatus, replyTitle, phoneNumberId, sender);
+  };
 
-  if(updateStatusMap[replyId.orderStatus]==="another_parts_approval_pending"){    /// match the value
-    return await sendInteractiveCtaUrlMessage(phoneNumberId,sender,"Make part request\n\n1. Select Required from the Part List.\n2. Select the Part Provider.\n3. Select the Quantity.\n4. Add Serial number of the part.\n5. Upload photo of the part.\n\nAfter filling the details Add part to the list if you required multiple parts you and add more parts into the list or remove then Click on the send part request to update order","Make Part Request", `https://kumarvikasgit.github.io/technician-bot-forms/part-request?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNoId=${phoneNumberId}&category=${orderData.category._id}&brand=${orderData.brand._id}&modelNo=${orderData.modelNo}&currentStatus=technician_working&userId=${userStore[sender].userId}&userName=${userStore[sender].userName}&anotherPart=true`);
-}
-
-    const status = MyOrderStatus.fromStatusCode(updateStatusMap[replyId.orderStatus]);
-    return await updateOrderStatus(replyId, status, replyId.currentStatus, phoneNumberId, sender);
-  }
-
-  if (orderStatusMap[replyId.orderStatus]) {
-    if(orderStatusMap[replyId.orderStatus]==="uploadDocument"){
-        return await sendInteractiveCtaUrlMessage(phoneNumberId,sender,"Please upload these required documents to Continue:\n\n1. Device Photo\n2. Serial Number\n3. Invoice Photo\n\nPlease upload images with the name mensioned above.","Upload Document", `https://kumarvikasgit.github.io/technician-bot-forms/upload-document?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNumberId=${phoneNumberId}`);
+  try {
+    if (updateStatusMap[replyId.orderStatus]) {
+      return await handleUpdateStatus();
     }
 
-    console.log("hhh", orderStatusMap[replyId.orderStatus]);
-    return await sendOrderSections(orderStatusMap[replyId.orderStatus], replyTitle, phoneNumberId, sender);
-  }
-
-  if (/^SRVZ-ORD-\d{9,10}$/i.test(replyTitle)) {
-    const orderData = await fetchOrderDetails(replyId.id, sender);
-    if (replyId.orderStatus === "technician_work_completed") {
-      return await sendOrderDetailsSummary(orderData, phoneNumberId, sender);
+    if (orderStatusMap[replyId.orderStatus]) {
+      return await handleOrderStatusMap();
     }
-    return await handleOrderStatusOptions(phoneNumberId, sender, orderData);
-  }
 
-  return await sendTextMessage(phoneNumberId, sender, "Sorry, we couldn't process your selection.");
+    if (/^SRVZ-ORD-\d{9,10}$/i.test(replyTitle)) {
+      const orderData = await fetchOrderDetails(replyId.id, sender);
+      if (replyId.orderStatus === "technician_work_completed") {
+        return await sendOrderDetailsSummary(orderData, phoneNumberId, sender);
+      }
+      return await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+    }
+
+    return await sendTextMessage(phoneNumberId, sender, "Sorry, we couldn't process your selection.");
+  } catch (error) {
+    console.error("Error handling interactive message:", error);
+    return await sendTextMessage(phoneNumberId, sender, "Something went wrong while processing your request.");
+  }
 };
 
 // ========================
