@@ -54,11 +54,20 @@ const parseCustomId = (idString = "") =>
 // ========================
 app.get("/webhook", (req, res) => {
   const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
+
+  console.log("🔍 Incoming webhook verification request:");
+  console.log("➡️ Mode:", mode);
+  console.log("➡️ Token:", token);
+  console.log("➡️ Challenge:", challenge);
+
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("✅ Webhook verified");
+    console.log("✅ Webhook verified successfully.");
     return res.status(200).send(challenge);
   }
-  console.warn("❌ Webhook verification failed");
+
+  console.warn("❌ Webhook verification failed.");
+  console.warn("Expected token:", VERIFY_TOKEN);
+  console.warn("Received token:", token);
   return res.sendStatus(403);
 });
 
