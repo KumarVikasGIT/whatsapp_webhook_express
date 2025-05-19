@@ -280,7 +280,7 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
 
       default:
         const status = MyOrderStatus.fromStatusCode(statusCode);
-        return await updateOrderStatus(replyId, status, replyId.currentStatus, phoneNumberId, sender);
+        return await updateOrderStatus(replyId, status, replyId.currentStatus, phoneNumberId, sender, orderData);
     }
   };
 
@@ -323,19 +323,27 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
 // ========================
 // Order Actions
 // ========================
-const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sender) => {
+const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sender, orderData) => {
+      const { user } = orderData;
+
     try {
       const { data } = await api.post(BASE_URL_STATUS, {
         order: { orderId: replyId.orderId, _id: replyId.id },
         lastStatus,
         currentStatus: status.statusCode,
         state: status.state,
-        statusChangeFrom: "admin",
-        changeFrom: "admin",
+        statusChangeFrom: "technician",
+        changeFrom: "technician",
         user: {
-          _id: "6464bf7e4f51a5937348796f",
-          email: "9934012217@serviz.com",
-          firstName: "Rahul",
+          _id: user._id,
+          firstName: user.firstName,
+          mobile: user.mobile,
+          email: user.email,
+        },
+        agent: {
+          _id: userStore[sender].userId,
+          firstName: userStore[sender].name,
+          userName: userStore[sender].name,
         },
       },
       {
@@ -389,6 +397,8 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
     ],
     technician_work_completed: [
       { title: "Completed Orders", statusCode: "technician_work_completed" },
+      { title: "Resolved Orders", statusCode: "complaint_resolved" },
+      { title: "Resolved Orders", statusCode: "sc_order_resolved" },
     ],
   };
 
@@ -403,7 +413,7 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
     }
 
     if (sections.length === 0) {
-      await sendTextMessage(phoneNumberId, sender, "Currently you have no pending orders. Please check after some time.");
+      await sendTextMessage(phoneNumberId, sender, "Currently you have no orders to show. Please check after some time.");
       return;
     }
 
@@ -420,7 +430,8 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
 
 const fetchOrdersByStatus = async (status, sender) => {
   try {
-    const { data } = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${userStore[sender].userId}`,  {
+    console.log("ioioio", status);
+    const { data } = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${userStore[sender].userId}&limit=5`,  {
       headers: {
         "Content-Type": "application/json",
         Authorization: userStore[sender].token,
@@ -708,6 +719,7 @@ const formatOrdersList = (orders = []) =>
     );
       userStore[sender].token=data.payload.token;
       userStore[sender].userId=data.payload.userId;
+      userStore[sender].name=data.payload.userName;
       console.error('OTP:', JSON.stringify(data));
       return data.status;
     } catch (error) {
