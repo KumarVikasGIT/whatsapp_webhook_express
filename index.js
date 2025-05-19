@@ -55,19 +55,10 @@ const parseCustomId = (idString = "") =>
 app.get("/webhook", (req, res) => {
   const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
 
-  console.log("🔍 Incoming webhook verification request:");
-  console.log("➡️ Mode:", mode);
-  console.log("➡️ Token:", token);
-  console.log("➡️ Challenge:", challenge);
-
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     console.log("✅ Webhook verified successfully.");
     return res.status(200).send(challenge);
   }
-
-  console.warn("❌ Webhook verification failed.");
-  console.warn("Expected token:", VERIFY_TOKEN);
-  console.warn("Received token:", token);
   return res.sendStatus(403);
 });
 
@@ -242,9 +233,13 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
   };
 
   const orderStatusMap = {
-    pendingOrders: "technician_assigned",
+    assignedOrders: "technician_assigned",
+    pendingOrders: "pending_orders",
     wipOrders: "technician_working",
+    partDetails: "part_details",
     completedOrders: "technician_work_completed",
+
+
     uploadDocument: "uploadDocument",
     verifyDocument: "verifyDocument"
   };
@@ -383,17 +378,21 @@ const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sen
 
 const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
   const sectionConfigs = {
-    technician_working: [
-      { title: "Work in Progress", statusCode: "technician_working" },
-      { title: "Reached Location", statusCode: "technician_on_location" },
-      { title: "Part Pending", statusCode: "parts_approval_pending" },
-      { title: "Part Handoverd", statusCode: "parts_handover_to_tecnician" },
-      { title: "Defective Pickup", statusCode: "defective_pickup" },
-    ],
-    technician_assigned: [
+     technician_assigned: [
       { title: "Assigned Orders", statusCode: "technician_assigned" },
       { title: "Reassigned Orders", statusCode: "technician_reassigned" },
+    ],
+    pending_orders: [
       { title: "Accepted Orders", statusCode: "technician_accepted" },
+      { title: "Defective Pickup", statusCode: "defective_pickup" },
+    ],
+    technician_working: [
+      { title: "Reached Location", statusCode: "technician_on_location" },
+      { title: "Work in Progress", statusCode: "technician_working" },
+    ],
+    part_details: [
+      { title: "Part Pending", statusCode: "parts_approval_pending" },
+      { title: "Defective Pickup", statusCode: "defective_pickup" },
     ],
     technician_work_completed: [
       { title: "Completed Orders", statusCode: "technician_work_completed" },
@@ -429,9 +428,15 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
 };
 
 const fetchOrdersByStatus = async (status, sender) => {
+
+  let limit=5;
+
+  if(status==="technician_work_completed"||status==="complaint_resolved"||status==="sc_order_resolved"){
+    limit=3;
+  }
+
   try {
-    console.log("ioioio", status);
-    const { data } = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${userStore[sender].userId}&limit=5`,  {
+    const { data } = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${userStore[sender].userId}&limit=${limit}`,  {
       headers: {
         "Content-Type": "application/json",
         Authorization: userStore[sender].token,
@@ -544,8 +549,10 @@ const sendInteractiveOptions = (phoneNumberId, to) =>
         sections: [{
           title: "Options",
           rows: [
+            { id: createCustomId({ orderStatus: "assignedOrders" }), title: "Assigned Orders", description: "Not yet started." },
             { id: createCustomId({ orderStatus: "pendingOrders" }), title: "Pending Orders", description: "Not yet started." },
             { id: createCustomId({ orderStatus: "wipOrders" }), title: "WIP Orders", description: "In progress." },
+            { id: createCustomId({ orderStatus: "partDetails" }), title: "Part Details", description: "Part Request & Defective Pickup." },
             { id: createCustomId({ orderStatus: "completedOrders" }), title: "Completed Orders", description: "Finished." },
           ],
         }],
