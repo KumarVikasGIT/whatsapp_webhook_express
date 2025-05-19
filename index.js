@@ -567,7 +567,7 @@ const sendInteractiveButtons = (phoneNumberId, to, orderData, buttons) => {
       type: "button",
       header: { type: "text", text: `Order ID: ${orderId}` },
       body: {
-        text: `📦 Order Details\n\n🆔 Status: ${orderStatus.state}\n📅 Schedule: ${schedule}\n\n🔧 Appliance: ${category?.name} - ${subCategory?.name}\nSerial Number: ${serialNo}\nModel Number: ${modelNo}\nIssue: ${serviceComment}\n\n👤 Customer: ${user?.firstName}\n📞Phone No: ${user?.phone}\n📍 Address: ${address?.address}, ${address?.city} - ${address.pincode}`,
+        text: `📦 Order Details\n\n🆔 Status: ${orderStatus.state}\n📅 Schedule: ${schedule}\n\n🔧 Appliance: ${category?.name} - ${subCategory?.name}\nSerial Number: ${serialNo}\nModel Number: ${modelNo}\nIssue: ${serviceComment}\n\n👤 Customer: ${user?.firstName}\n📞Phone No: ${user?.mobile}\n📍 Address: ${address?.address}, ${address?.city} - ${address.pincode}`,
       },
       action: { buttons },
     },
