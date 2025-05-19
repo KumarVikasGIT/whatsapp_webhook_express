@@ -556,7 +556,7 @@ const sendInteractiveList = (phoneNumberId, to, title, sections) =>
   });
 
 const sendInteractiveButtons = (phoneNumberId, to, orderData, buttons) => {
-  const { orderId, category, subCategory, serviceDateTime, user, address, orderStatus } = orderData;
+  const { orderId, category, subCategory, serviceDateTime, user, address, orderStatus,serialNo, modelNo, serviceComment } = orderData;
   const schedule = new Date(serviceDateTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
   return axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
@@ -567,7 +567,7 @@ const sendInteractiveButtons = (phoneNumberId, to, orderData, buttons) => {
       type: "button",
       header: { type: "text", text: `Order ID: ${orderId}` },
       body: {
-        text: `📦 Order Details\n\n🆔 Status: ${orderStatus.state}\n📅 Schedule: ${schedule}\n\n🔧 Appliance: ${category?.name} - ${subCategory?.name}\n\n👤 Customer: ${user?.firstName}\n📍 Address: ${address?.address}, ${address?.city}`,
+        text: `📦 Order Details\n\n🆔 Status: ${orderStatus.state}\n📅 Schedule: ${schedule}\n\n🔧 Appliance: ${category?.name} - ${subCategory?.name}\nSerial Number: ${serialNo}\nModel Number: ${modelNo}\nIssue: ${serviceComment}\n\n👤 Customer: ${user?.firstName}\n📞Phone No: ${user?.phone}\n📍 Address: ${address?.address}, ${address?.city} - ${address.pincode}`,
       },
       action: { buttons },
     },
