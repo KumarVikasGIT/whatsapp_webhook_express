@@ -1,0 +1,11 @@
+export const DOCUMENT_TYPES = {
+    INVOICE: 0,
+    SERIAL_NUMBER: 1,
+    DEVICE_VIDEO: 2,
+    DEVICE_PHOTO: 3,
+    SELFIE: 4,
+    PART_HANDOVER: 5,
+    DEFECTIVE_PICKUP: 6,
+    DEFECTIVE_PART: 8,
+    DEFAULT: -1
+};

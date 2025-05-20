@@ -4,6 +4,7 @@ const bodyParser = require("body-parser");
 const axios = require("axios");
 const { Status, MyOrderStatus } = require("./order_status");
 const { DocType, RequiredDocumentData } = require("./doc_type");
+const { DOCUMENT_TYPES } = require("./doc_types");
 const path = require('path');
 const fs = require('fs');
 require("dotenv").config();
@@ -319,7 +320,40 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
 // Order Actions
 // ========================
 const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sender, orderData) => {
-      const { user } = orderData;
+      const { user, documents, parts, brand } = orderData;
+
+    if(status.statusCode==="technician_work_completed"){
+const isPartsRequest = parts !== undefined && parts.length > 0;
+const partsCount = isPartsRequest ? parts.length : 0;
+
+console.log("ioioio", isPartsRequest);
+console.log("ioioio", partsCount);
+console.log("ioioio", documents);
+console.log("ioioio", brand?.name);
+
+if (!isAllDocsValid(
+  documents,
+  brand?.name === "primebook",
+  isPartsRequest,
+  partsCount
+)) {   await sendTextMessage(phoneNumberId,sender,"Required documents not found please upload documents first then retry");
+          await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+          return;
+        }
+    }
+
+    console.log("opopo",status.statusCode);
+    console.log("opopo",orderData.orderStatus.currentStatus);
+
+if (
+  ['technician_accepted', 'technician_rejected'].includes(status.statusCode) &&
+  !['technician_assigned', 'technician_reassigned'].includes(orderData.orderStatus.currentStatus)
+) {
+      await sendTextMessage(phoneNumberId,sender, "Status is Not Valid");
+          await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+
+      return;
+    }
 
     try {
       const { data } = await api.post(BASE_URL_STATUS, {
@@ -913,3 +947,55 @@ const formatOrdersList = (orders = []) =>
       return res.status(500).json({ status: false, message: "Internal Server Error" });
     }
   });  
+
+const validateDocuments = (docs, validations) => {
+    if (!docs || docs.length === 0) return false;
+  
+    const counts = Array(9).fill(0); // Size 9 to accommodate type 8
+    docs.forEach(doc => counts[doc.type?.value ?? DOCUMENT_TYPES.DEFAULT]++);
+  
+    return validations.every(({ type, minCount }) => counts[type] >= minCount);
+};
+
+const isAllDocsValid = (docs, isPrimeBookOrder, isPartRequest, partQuantity) => {
+    const validations = [
+        { type: DOCUMENT_TYPES.INVOICE, minCount: 1 },
+        { type: DOCUMENT_TYPES.SERIAL_NUMBER, minCount: 1 },
+        { type: DOCUMENT_TYPES.DEVICE_PHOTO, minCount: 1 }
+    ];
+
+    if (isPrimeBookOrder) {
+        validations.push({ type: DOCUMENT_TYPES.SELFIE, minCount: 1 });
+    }
+
+    if (isPartRequest) {
+        validations.push({ type: DOCUMENT_TYPES.DEFECTIVE_PICKUP, minCount: partQuantity });
+    }
+
+    return validateDocuments(docs, validations);
+};
+  
+
+
+  
+  const isCorpDocsValid = (docs, isAc, isPartRequest, partQuantity) => {
+    return validateDocuments(docs, [
+      { type: DOCUMENT_TYPES.SERIAL_NUMBER, minCount: 1 },
+      { type: DOCUMENT_TYPES.DEVICE_PHOTO, minCount: 1 },
+      { 
+        type: DOCUMENT_TYPES.OUTER_SERIAL_NUMBER, 
+        minCount: 1, 
+        condition: isAc 
+      },
+      { 
+        type: DOCUMENT_TYPES.DEVICE_PHOTO, 
+        minCount: 1, 
+        condition: isAc 
+      },
+      { 
+        type: DOCUMENT_TYPES.DEFECTIVE_PART, 
+        minCount: partQuantity, 
+        condition: isPartRequest 
+      }
+    ]);
+  };
