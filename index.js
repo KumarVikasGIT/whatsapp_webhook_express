@@ -19,6 +19,7 @@ const {
   BASE_URL_ORDERS,
   BASE_URL_SC,
   BASE_URL_WHATSAPP_LOGS,
+  BASE_URL_REFRESH_TECHNICIAN,
   PORT = 3000,
 } = process.env;
 
@@ -62,6 +63,8 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
+const processedMessages = new Set();
+
 app.post("/webhook", async (req, res) => {
   const body = req.body;
 
@@ -85,7 +88,6 @@ app.post("/webhook", async (req, res) => {
     const recipient = statusInfo.recipient_id;
     const timestamp = statusInfo.timestamp;
 
-    console.log(`📩 Message ${messageId} to ${recipient} is ${status} at ${timestamp}`);
     return res.sendStatus(200); // Exit early after handling status
   }
 
@@ -104,6 +106,17 @@ app.post("/webhook", async (req, res) => {
   const phoneNumberId = metadata.phone_number_id;
   const sender = message.from;
   const senderName = contact.profile?.name || "Unknown";
+  const messageId = message.id;
+
+  // ========================
+  // ✋ Ignore Duplicate Messages
+  // ========================
+  if (processedMessages.has(messageId)) {
+    console.log(`⚠️ Duplicate message ${messageId} from ${sender} ignored.`);
+    return res.sendStatus(200);
+  }
+  processedMessages.add(messageId);
+  setTimeout(() => processedMessages.delete(messageId), 5 * 60 * 1000); // expire after 5 min
 
   const requiredDocuments = {
     invoice: RequiredDocumentData.invoice,
@@ -112,101 +125,88 @@ app.post("/webhook", async (req, res) => {
   };
 
   try {
+    // ========================
+    // 0. OTP Verification Step
+    // ========================
+    const messageText = message?.text?.body?.trim();
+    const userState = await getUserState(sender);
+    const userData = await getFirstItem(sender);
 
-  // ========================
-  // 0. OTP Verification Step
-  // ========================
-  const messageText = message?.text?.body?.trim();
-  const userState = await getUserState(sender); // get from DB/cache
-  
-  if (!userState || userState === 'initial') {
-    await setUserState(sender, 'awaiting_phone');
-    await sendTextMessage(phoneNumberId, sender, "📱 Please enter your registered mobile number.");
-    return res.sendStatus(200);
-  }
-  
-  if (userState === 'awaiting_phone') {
-    if (!/^\d{10}$/.test(messageText)) {
-      await sendTextMessage(phoneNumberId, sender, "❌ Invalid number. Please enter a valid 10-digit mobile number.");
+    if ((!userState || userState === 'initial') && !userData) {
+      await setUserState(sender, 'awaiting_phone');
+      await sendTextMessage(phoneNumberId, sender, "📱 Please enter your registered mobile number.");
       return res.sendStatus(200);
     }
-  
-    await setUserPhone(sender, messageText);
-  
-    try {
-      await generateAndSendOTP(sender, phoneNumberId, messageText);
-      await setUserState(sender, 'awaiting_otp');
-      await sendTextMessage(phoneNumberId, sender, "✅ OTP has been sent successfully. Please enter the OTP.");
-    } catch (err) {
-      // Already handled inside generateAndSendOTP
-    }
-  
-    return res.sendStatus(200);
-  }
-  
-  
-  if (userState === 'awaiting_otp') {
-    if (messageText.toLowerCase() === 'resend') {
-      const phone = userStore[sender]?.phone;
-      if (!phone) {
-        await sendTextMessage(phoneNumberId, sender, "⚠️ Phone number not found. Please re-enter your number.");
-        await setUserState(sender, 'awaiting_phone');
+
+    if (userState === 'awaiting_phone') {
+      if (!/^\d{10}$/.test(messageText)) {
+        await sendTextMessage(phoneNumberId, sender, "❌ Invalid number. Please enter a valid 10-digit mobile number.");
         return res.sendStatus(200);
       }
-  
-      await generateAndSendOTP(sender, phoneNumberId, phone);
-      await sendTextMessage(phoneNumberId, sender, "🔄 OTP has been resent. Please enter the new OTP.");
-      return res.sendStatus(200);
-    }
-  
-    const isValidOtp = await verifyOTP(messageText, userStore[sender]?.phone, sender);
-    if (!isValidOtp) {
-      const retries = (userStore[sender].otpRetries || 0) + 1;
-      userStore[sender].otpRetries = retries;
-  
-      if (retries >= 3) {
-        await sendTextMessage(phoneNumberId, sender, "❌ Too many incorrect attempts. Please type 'resend' to get a new OTP.");
-      } else {
-        await sendTextMessage(phoneNumberId, sender, `❌ Invalid OTP. Attempt ${retries}/3. Try again or type 'resend' to get a new OTP.`);
+
+      await setUserPhone(sender, messageText);
+
+      try {
+        await generateAndSendOTP(sender, phoneNumberId, messageText);
+        await setUserState(sender, 'awaiting_otp');
+        await sendTextMessage(phoneNumberId, sender, "✅ OTP has been sent successfully. Please enter the OTP.");
+      } catch (err) {
+        // Already handled inside generateAndSendOTP
       }
+
       return res.sendStatus(200);
     }
-  
-    await setUserState(sender, 'verified');
-    userStore[sender].otpRetries = 0; // Reset retry counter
-    await sendTextMessage(phoneNumberId, sender, "✅ OTP verified successfully. How can I help you today?");
-     // Default fallback: send menu
-     await sendInteractiveOptions(phoneNumberId, sender);
-    return res.sendStatus(200);
-  }  
-  
+
+    if (userState === 'awaiting_otp') {
+      if (messageText.toLowerCase() === 'resend') {
+        const phone = userStore[sender]?.phone;
+        if (!phone) {
+          await sendTextMessage(phoneNumberId, sender, "⚠️ Phone number not found. Please re-enter your number.");
+          await setUserState(sender, 'awaiting_phone');
+          return res.sendStatus(200);
+        }
+
+        await generateAndSendOTP(sender, phoneNumberId, phone);
+        await sendTextMessage(phoneNumberId, sender, "🔄 OTP has been resent. Please enter the new OTP.");
+        return res.sendStatus(200);
+      }
+
+      const isValidOtp = await verifyOTP(messageText, userStore[sender]?.phone, sender);
+      if (!isValidOtp) {
+        const retries = (userStore[sender].otpRetries || 0) + 1;
+        userStore[sender].otpRetries = retries;
+
+        if (retries >= 3) {
+          await sendTextMessage(phoneNumberId, sender, "❌ Too many incorrect attempts. Please type 'resend' to get a new OTP.");
+        } else {
+          await sendTextMessage(phoneNumberId, sender, `❌ Invalid OTP. Attempt ${retries}/3. Try again or type 'resend' to get a new OTP.`);
+        }
+        return res.sendStatus(200);
+      }
+
+      await setUserState(sender, 'verified');
+      userStore[sender].otpRetries = 0;
+      await sendTextMessage(phoneNumberId, sender, "✅ OTP verified successfully. How can I help you today?");
+      await sendInteractiveOptions(phoneNumberId, sender);
+      return res.sendStatus(200);
+    }
+
+    // ========================
+    // Interactive Message Handler
+    // ========================
     if (message.type === "interactive") {
       const reply = message.interactive.list_reply || message.interactive.button_reply;
       const replyId = parseCustomId(reply?.id);
       const replyTitle = reply?.title;
 
-      await handleInteractiveMessage(replyId, replyTitle, phoneNumberId, sender);
+      await handleInteractiveMessage(replyId, replyTitle, phoneNumberId, sender, userData);
       return res.sendStatus(200);
     }
 
-    if (message.type === "image") {
-      const caption = message.image.caption?.trim().toLowerCase();
-
-      if (!caption || !requiredDocuments[caption]) {
-        await sendTextMessage(
-          phoneNumberId,
-          sender,
-          "Document name not found or invalid. Please reupload the image with a valid document name (e.g., invoice, serial, device)."
-        );
-        return res.sendStatus(200);
-      }
-
-      await downloadAndSaveImage(message.image.id); // ensure this is async if needed
-      return res.sendStatus(200);
-    }
-
-    // Default fallback: send menu
-    await sendInteractiveOptions(phoneNumberId, sender);
+    // ========================
+    // Default Fallback
+    // ========================
+    await sendInteractiveOptions(phoneNumberId, sender, userData);
     return res.sendStatus(200);
 
   } catch (error) {
@@ -217,10 +217,110 @@ app.post("/webhook", async (req, res) => {
 });
 
 
+async function getFirstItem(sender) {
+    if (!sender || typeof sender !== 'string') {
+        console.error('[Validation] Invalid sender parameter:', sender);
+        return null;
+    }
+
+    try {
+        // Fetch user data
+        const userResponse = await api.get(`${BASE_URL_WHATSAPP_LOGS}?userPhoneId=${sender}`);
+        const responseData = userResponse?.data;
+
+        if (!responseData?.status || !Array.isArray(responseData.payload?.items) || responseData.payload.items.length === 0) {
+            console.warn('[API] Invalid response structure or empty user list');
+            return null;
+        }
+
+        const user = responseData.payload.items[0];
+        const { _id, loginPhone, token, rToken } = user;
+
+        if (!token || !rToken) {
+            console.error('[Token] Missing access or refresh token for user:', loginPhone);
+            return null;
+        }
+
+        console.debug('[User] Found:', { id: _id, phone: loginPhone });
+
+        // Refresh token
+        const refreshResult = await refreshTechnician(token, rToken);
+        const newToken = refreshResult?.payload?.token;
+
+        if (!newToken) {
+            console.error('[Refresh] Failed to refresh token');
+            return null;
+        }
+
+        // Update user token
+        const updateResponse = await api.put(`${BASE_URL_WHATSAPP_LOGS}/${_id}`, { token: newToken });
+        const updatedUser = updateResponse?.data?.payload;
+
+        if (!updatedUser) {
+            console.error('[Update] Failed to update user token');
+            return null;
+        }
+
+        console.debug('[Update] User token updated successfully:', {
+            userId: _id,
+            updated: true
+        });
+
+        return updatedUser;
+
+    } catch (error) {
+        console.error('[getFirstItem Error]', {
+            message: error?.message,
+            url: error?.config?.url || 'N/A',
+            stack: error?.stack
+        });
+        return null;
+    }
+}
+
+async function refreshTechnician(accessToken, refreshToken) {
+    // Validate tokens
+    if (!accessToken || !refreshToken) {
+        console.error('[Validation] Missing tokens for refresh');
+        throw new Error('Missing authentication tokens');
+    }
+
+    try {
+        const result = await api.post(
+            BASE_URL_REFRESH_TECHNICIAN,
+            {}, // Empty body
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`,
+                    'rtoken': refreshToken
+                },
+                timeout: 10000 // 10 second timeout
+            }
+        );
+
+        if (!result?.data) {
+            console.error('[Refresh] Empty response from refresh endpoint');
+            throw new Error('Empty refresh response');
+        }
+
+        return result.data;
+
+    } catch (error) {
+        console.error('[Refresh Error] Failed to refresh technician:', {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message
+        });
+        throw error; // Re-throw to let caller handle
+    }
+}
+
+
 // ========================
 // Handlers
 // ========================
-const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, sender) => {
+const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, sender, userData) => {
   const updateStatusMap = {
     acceptOrder: "technician_accepted",
     rejectOrder: "technician_rejected",
@@ -244,9 +344,9 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
     verifyDocument: "verifyDocument"
   };
 
-  const sendPartRequestForm = async (isAnotherPart, orderData) => {
+  const sendPartRequestForm = async (isAnotherPart, orderData, userData) => {
     const partTypeText = isAnotherPart ? "another part" : "a part";
-    const formURL = `https://kumarvikasgit.github.io/technician-bot-forms/part-request?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNoId=${phoneNumberId}&category=${orderData.category._id}&brand=${orderData.brand._id}&modelNo=${orderData.modelNo}&currentStatus=technician_working&userId=${userStore[sender].userId}&userName=${userStore[sender].userName}&anotherPart=${isAnotherPart}`;
+    const formURL = `https://kumarvikasgit.github.io/technician-bot-forms/part-request?token=${userData.token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNoId=${phoneNumberId}&category=${orderData.category._id}&brand=${orderData.brand._id}&modelNo=${orderData.modelNo}&currentStatus=technician_working&userId=${userData.userId}&userName=${userData.userName}&anotherPart=${isAnotherPart}`;
 
     const message = `Make ${partTypeText} request\n\n1. Select Required from the Part List.\n2. Select the Part Provider.\n3. Select the Quantity.\n4. Add Serial number of the part.\n5. Upload photo of the part.\n\nAfter filling the details, add part(s) to the list and click "Send Part Request" to update the order.`;
 
@@ -255,7 +355,7 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
 
   const handleUpdateStatus = async () => {
     const statusCode = updateStatusMap[replyId.orderStatus];
-    const orderData = await fetchOrderDetails(replyId.id, sender);
+    const orderData = await fetchOrderDetails(replyId.id, sender, userData);
 
     switch (statusCode) {
       case "defective_pickup":
@@ -264,18 +364,18 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
           sender,
           "Please upload these required documents to continue:\n\n1. Defective Part Photo",
           "Upload Defective",
-          `https://kumarvikasgit.github.io/technician-bot-forms/defective-pickup?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNumberId=${phoneNumberId}`
+          `https://kumarvikasgit.github.io/technician-bot-forms/defective-pickup?token=${userData.token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNumberId=${phoneNumberId}`
         );
 
       case "parts_approval_pending":
-        return await sendPartRequestForm(false, orderData);
+        return await sendPartRequestForm(false, orderData, userData);
 
       case "another_parts_approval_pending":
-        return await sendPartRequestForm(true, orderData);
+        return await sendPartRequestForm(true, orderData, userData);
 
       default:
         const status = MyOrderStatus.fromStatusCode(statusCode);
-        return await updateOrderStatus(replyId, status, replyId.currentStatus, phoneNumberId, sender, orderData);
+        return await updateOrderStatus(replyId, status, replyId.currentStatus, phoneNumberId, sender, orderData, userData);
     }
   };
 
@@ -283,12 +383,12 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
     const mappedStatus = orderStatusMap[replyId.orderStatus];
 
     if (mappedStatus === "uploadDocument") {
-      const docUrl = `https://kumarvikasgit.github.io/technician-bot-forms/upload-document?token=${userStore[sender].token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNumberId=${phoneNumberId}`;
+      const docUrl = `https://kumarvikasgit.github.io/technician-bot-forms/upload-document?token=${userData.token}&id=${replyId.id}&orderId=${replyId.orderId}&sender=${sender}&phoneNumberId=${phoneNumberId}`;
       const docMsg = "Please upload these required documents to continue:\n\n1. Device Photo\n2. Serial Number\n3. Invoice Photo\n\nPlease upload images with the names mentioned above.";
       return await sendInteractiveCtaUrlMessage(phoneNumberId, sender, docMsg, "Upload Document", docUrl);
     }
 
-    return await sendOrderSections(mappedStatus, replyTitle, phoneNumberId, sender);
+    return await sendOrderSections(mappedStatus, replyTitle, phoneNumberId, sender, userData);
   };
 
   try {
@@ -301,7 +401,7 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
     }
 
     if (/^SRVZ-ORD-\d{9,10}$/i.test(replyTitle)) {
-      const orderData = await fetchOrderDetails(replyId.id, sender);
+      const orderData = await fetchOrderDetails(replyId.id, sender, userData);
       if (replyId.orderStatus === "technician_work_completed") {
         return await sendOrderDetailsSummary(orderData, phoneNumberId, sender);
       }
@@ -318,7 +418,7 @@ const handleInteractiveMessage = async (replyId, replyTitle, phoneNumberId, send
 // ========================
 // Order Actions
 // ========================
-const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sender, orderData) => {
+const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sender, orderData, userData) => {
       const { user, documents, parts, brand } = orderData;
 
     if(status.statusCode==="technician_work_completed"){
@@ -364,15 +464,15 @@ if (
           email: user.email,
         },
         agent: {
-          _id: userStore[sender].userId,
-          firstName: userStore[sender].name,
-          userName: userStore[sender].name,
+          _id: userData.userId,
+          firstName: userData.userName,
+          userName: userData.userName,
         },
       },
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: userStore[sender].token,
+          Authorization: userData.token,
         },
       });
   
@@ -395,7 +495,7 @@ if (
       }
   
       // Otherwise, continue to fetch updated order details and show options
-      const orderData = await fetchOrderDetails(data.payload.order._id, sender);
+      const orderData = await fetchOrderDetails(data.payload.order._id, sender, userData);
       return await handleOrderStatusOptions(phoneNumberId, sender, orderData);
   
     } catch (error) {
@@ -404,7 +504,7 @@ if (
     }
   };  
 
-const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
+const sendOrderSections = async (status, replyTitle, phoneNumberId, sender, userData) => {
   const sectionConfigs = {
      technician_assigned: [
       { title: "Assigned Orders", statusCode: "technician_assigned" },
@@ -424,8 +524,8 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
     ],
     technician_work_completed: [
       { title: "Completed Orders", statusCode: "technician_work_completed" },
-      { title: "Resolved Orders", statusCode: "complaint_resolved" },
-      { title: "Resolved Orders", statusCode: "sc_order_resolved" },
+      { title: "Complaint Resolved", statusCode: "complaint_resolved" },
+      { title: "Order Resolved", statusCode: "sc_order_resolved" },
     ],
   };
 
@@ -433,7 +533,7 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
     const sections = [];
 
     for (const config of sectionConfigs[status]) {
-      const orders = await fetchOrdersByStatus(config.statusCode, sender);
+      const orders = await fetchOrdersByStatus(config.statusCode, sender, userData);
       if (orders.length > 0) {
         sections.push({ title: config.title, rows: orders });
       }
@@ -446,7 +546,7 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
 
     return await sendInteractiveList(phoneNumberId, sender, replyTitle, sections);
   } else {
-    const orders = await fetchOrdersByStatus(status, sender);
+    const orders = await fetchOrdersByStatus(status, sender, userData);
     if (orders.length === 0) {
      return await sendTextMessage(phoneNumberId, sender, "No orders found at this time.");
     } else {
@@ -455,7 +555,7 @@ const sendOrderSections = async (status, replyTitle, phoneNumberId, sender) => {
   }
 };
 
-const fetchOrdersByStatus = async (status, sender) => {
+const fetchOrdersByStatus = async (status, sender, userData) => {
 
   let limit=5;
 
@@ -464,10 +564,10 @@ const fetchOrdersByStatus = async (status, sender) => {
   }
 
   try {
-    const { data } = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${userStore[sender].userId}&limit=${limit}`,  {
+    const { data } = await api.get(`${BASE_URL_ORDERS}?orderStatus=${status}&technician=${userData.userId}&limit=${limit}`,  {
       headers: {
         "Content-Type": "application/json",
-        Authorization: userStore[sender].token,
+        Authorization: userData.token,
       },
     });
     return formatOrdersList(data?.payload?.items || []);
@@ -477,11 +577,11 @@ const fetchOrdersByStatus = async (status, sender) => {
   }
 };
 
-const fetchOrderDetails = async (id, sender) => {
+const fetchOrderDetails = async (id, sender, userData) => {
   const { data } = await api.get(`${BASE_URL_ORDERS}/${id}`, {
     headers: {
       "Content-Type": "application/json",
-      Authorization: userStore[sender].token,
+      Authorization: userData.token,
     },
   });
   return data?.payload;
@@ -563,14 +663,14 @@ const sendTextMessage = (phoneNumberId, to, message) =>
     text: { body: message },
   });
 
-const sendInteractiveOptions = (phoneNumberId, to) =>
+const sendInteractiveOptions = (phoneNumberId, to, userData) =>
   axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
     messaging_product: "whatsapp",
     to,
     type: "interactive",
     interactive: {
       type: "list",
-      header: { type: "text", text: `Hi ${to}, welcome to SERVIZ Technician Bot.` },
+      header: { type: "text", text: `Hi ${userData?.userName??''}, welcome to SERVIZ Technician Bot.` },
       body: { text: "Please choose an option." },
       action: {
         button: "Get Orders",
@@ -596,7 +696,7 @@ const sendInteractiveList = (phoneNumberId, to, title, sections) =>
     interactive: {
       type: "list",
       header: { type: "text", text: title },
-      body: { text: `Here are your ${title.toLowerCase()} orders.` },
+      body: { text: `Here are your ${title}.` },
       action: { button: "View Orders", sections },
     },
   });
@@ -745,36 +845,43 @@ const formatOrdersList = (orders = []) =>
     }
   }
   
-  async function verifyOTP(otp, phone, sender) {
-    try {  
-      const { data } = await api.post(`${BASE_URL_SC}employee-login-otp/confirm`, {
-        mobile: phone,
-        otp:otp
-      },
-    );
-      userStore[sender].token=data.payload.token;
-      userStore[sender].userId=data.payload.userId;
-      userStore[sender].name=data.payload.userName;
+ async function verifyOTP(otp, phone, sender) {
+  try {  
+    const { data } = await api.post(`${BASE_URL_SC}employee-login-otp/confirm`, {
+      mobile: phone,
+      otp: otp
+    });
 
-     await api.post(BASE_URL_WHATSAPP_LOGS, {
-        userPhoneId : sender,
-        userName : data.payload.userName,
-        userId : data.payload.userId,
-        token : data.payload.token,
-        rToken : data.payload.refreshToken,
-        loginPhone : phone
-      },
-    );
+    const userData=await getFirstItem(sender);
 
-      return data.status;
-    } catch (error) {
-      console.error('Error verify OTP:', error.message || error);
-      console.error('OTP:', JSON.stringify(error));
-      // await sendTextMessage(phoneNumberId, sender, `❌ Failed to Verify: ${error.message || 'Please try again later.'}`);
-      return false;
+    if(userData){
+      await api.put(`${BASE_URL_WHATSAPP_LOGS}/${userData._id}`, {
+      userPhoneId: sender,
+      userName: data.payload.userName,
+      userId: data.payload.userId,
+      token: data.payload.token,
+      rToken: data.payload.refreshToken,
+      loginPhone: phone
+    });
+
+      return data.status;    
     }
-  }
 
+    await api.post(BASE_URL_WHATSAPP_LOGS, {
+      userPhoneId: sender,
+      userName: data.payload.userName,
+      userId: data.payload.userId,
+      token: data.payload.token,
+      rToken: data.payload.refreshToken,
+      loginPhone: phone
+    });
+
+    return data.status;
+  } catch (error) {
+    console.error('Error verifying OTP:', error.message || error);
+    return false;
+  }
+}
   app.post("/notify-document-upload", cors(),async (req, res) => {
     try {
       const { id, orderID, sender, status, phoneNumberId } = req.body;
@@ -797,11 +904,12 @@ const formatOrdersList = (orders = []) =>
       // Proceed only if status is true
       if (status === true) {
         try {
+          let userData = await getFirstItem(sender);
           // 1. Acknowledge successful upload
           await sendTextMessage(phoneNumberId, sender, `✅ Document uploaded successfully for Order ${orderID}.`);
   
           // 2. Fetch order details
-          const orderData = await fetchOrderDetails(id, sender);
+          const orderData = await fetchOrderDetails(id, sender, userData);
   
           if (!orderData) {
             const msg = "⚠️ Document uploaded, but order data could not be found.";
@@ -856,11 +964,12 @@ const formatOrdersList = (orders = []) =>
       // Proceed only if status is true
       if (status === true) {
         try {
+          let userData = await getFirstItem(sender);
           // 1. Acknowledge successful upload
           await sendTextMessage(phoneNumberId, sender, `✅ We receive part update request for Order ${orderID}.`);
   
           // 2. Fetch order details
-          const orderData = await fetchOrderDetails(id, sender);
+          const orderData = await fetchOrderDetails(id, sender, userData);
   
           if (!orderData) {
             const msg = "⚠️ Part Updated, but order data could not be found.";
@@ -915,11 +1024,12 @@ const formatOrdersList = (orders = []) =>
       // Proceed only if status is true
       if (status === true) {
         try {
+          let userData = await getFirstItem(sender);
           // 1. Acknowledge successful upload
           await sendTextMessage(phoneNumberId, sender, `✅ We receive defective part update request for Order ${orderID}.`);
   
           // 2. Fetch order details
-          const orderData = await fetchOrderDetails(id, sender);
+          const orderData = await fetchOrderDetails(id, sender, userData);
   
           if (!orderData) {
             const msg = "⚠️ Part Updated, but order data could not be found.";
