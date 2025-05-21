@@ -18,8 +18,7 @@ const {
   BASE_URL_STATUS,
   BASE_URL_ORDERS,
   BASE_URL_SC,
-  AUTH_TOKEN,
-  TECHNICIAN,
+  BASE_URL_WHATSAPP_LOGS,
   PORT = 3000,
 } = process.env;
 
@@ -325,11 +324,6 @@ const updateOrderStatus = async (replyId, status, lastStatus, phoneNumberId, sen
     if(status.statusCode==="technician_work_completed"){
 const isPartsRequest = parts !== undefined && parts.length > 0;
 const partsCount = isPartsRequest ? parts.length : 0;
-
-console.log("ioioio", isPartsRequest);
-console.log("ioioio", partsCount);
-console.log("ioioio", documents);
-console.log("ioioio", brand?.name);
 
 if (!isAllDocsValid(
   documents,
@@ -761,7 +755,17 @@ const formatOrdersList = (orders = []) =>
       userStore[sender].token=data.payload.token;
       userStore[sender].userId=data.payload.userId;
       userStore[sender].name=data.payload.userName;
-      console.error('OTP:', JSON.stringify(data));
+
+     await api.post(BASE_URL_WHATSAPP_LOGS, {
+        userPhoneId : sender,
+        userName : data.payload.userName,
+        userId : data.payload.userId,
+        token : data.payload.token,
+        rToken : data.payload.refreshToken,
+        loginPhone : phone
+      },
+    );
+
       return data.status;
     } catch (error) {
       console.error('Error verify OTP:', error.message || error);
@@ -974,9 +978,6 @@ const isAllDocsValid = (docs, isPrimeBookOrder, isPartRequest, partQuantity) => 
 
     return validateDocuments(docs, validations);
 };
-  
-
-
   
   const isCorpDocsValid = (docs, isAc, isPartRequest, partQuantity) => {
     return validateDocuments(docs, [
