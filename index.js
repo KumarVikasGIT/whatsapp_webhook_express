@@ -436,9 +436,6 @@ if (!isAllDocsValid(
         }
     }
 
-    console.log("opopo",status.statusCode);
-    console.log("opopo",orderData.orderStatus.currentStatus);
-
 if (
   ['technician_accepted', 'technician_rejected'].includes(status.statusCode) &&
   !['technician_assigned', 'technician_reassigned'].includes(orderData.orderStatus.currentStatus)
@@ -448,6 +445,25 @@ if (
 
       return;
     }
+
+    if (status.statusCode==="technician_on_location" && orderData.orderStatus.currentStatus!=="technician_accepted"){
+      await sendTextMessage(phoneNumberId,sender, "Status is Not Valid");
+      await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+      return;
+    }
+
+    if (status.statusCode==="technician_working" && orderData.orderStatus.currentStatus!=="technician_on_location"){
+      await sendTextMessage(phoneNumberId,sender, "Status is Not Valid");
+      await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+      return;
+    }
+
+     if (status.statusCode==="technician_work_completed" && (orderData.orderStatus.currentStatus!=="technician_working"||orderData.orderStatus.currentStatus!=="defective_pickup")){
+      await sendTextMessage(phoneNumberId,sender, "Status is Not Valid");
+      await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+      return;
+    }
+
 
     try {
       const { data } = await api.post(BASE_URL_STATUS, {
@@ -720,21 +736,6 @@ const sendInteractiveButtons = (phoneNumberId, to, orderData, buttons) => {
   });
 };
 
-const sendInteractiveDocumentButtons = (phoneNumberId, to ,title, body, buttons) => {  
-    return axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
-      messaging_product: "whatsapp",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "button",
-        header: { type: "text", text: title },
-        body: {
-          text: body,
-        },
-        action: { buttons },
-      },
-    });
-  };
 
 const sendInteractiveCtaUrlMessage = (phoneNumberId, to, bodyText, buttonText, buttonUrl) => {
   return axios.post(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages?access_token=${TOKEN}`, {
@@ -778,46 +779,6 @@ const formatOrdersList = (orders = []) =>
     title: order.orderId,
     description: `${order.category?.name || ""} - ${order.subCategory?.name || ""} | ${order.brand?.name || ""} | ${order.warranty || ""} | ${order.serviceComment || ""}`,
   }));
-
-  // download and save image
-  async function downloadAndSaveImage(mediaId) {
-    try {
-      // 1. Get media URL
-      const mediaInfo = await axios.get(`https://graph.facebook.com/v19.0/${mediaId}`, {
-        headers: {
-          Authorization: `Bearer ${TOKEN}`
-        }
-      });
-  
-      const imageUrl = mediaInfo.data.url;
-      console.log('Image URL:', imageUrl);
-  
-      // 2. Download the image
-      const response = await axios.get(imageUrl, {
-        headers: {
-          Authorization: `Bearer ${TOKEN}`
-        },
-        responseType: 'stream' // important: so we can pipe the data to file
-      });
-  
-      // 3. Save to local disk
-      const filePath = path.join(`${__dirname}/uploads`, `${mediaId}.jpg`); // or any folder you want
-      const writer = fs.createWriteStream(filePath);
-  
-      response.data.pipe(writer);
-  
-      writer.on('finish', () => {
-        console.log('✅ Image successfully saved to', filePath);
-      });
-  
-      writer.on('error', (err) => {
-        console.error('❌ Error saving image:', err);
-      });
-  
-    } catch (error) {
-      console.error('❌ Error downloading image:', error.response?.data || error.message);
-    }
-  }
 
   async function getUserState(sender) {
     return userStore[sender]?.state || 'initial';
@@ -882,6 +843,7 @@ const formatOrdersList = (orders = []) =>
     return false;
   }
 }
+
   app.post("/notify-document-upload", cors(),async (req, res) => {
     try {
       const { id, orderID, sender, status, phoneNumberId } = req.body;
