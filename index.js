@@ -88,12 +88,6 @@ app.post("/webhook", async (req, res) => {
   // ========================
   const statuses = value?.statuses;
   if (statuses && statuses.length > 0) {
-    const statusInfo = statuses[0];
-    const messageId = statusInfo.id;
-    const status = statusInfo.status;
-    const recipient = statusInfo.recipient_id;
-    const timestamp = statusInfo.timestamp;
-
     return res.sendStatus(200); // Exit early after handling status
   }
 
@@ -138,7 +132,7 @@ app.post("/webhook", async (req, res) => {
     const userState = await getUserState(sender);
     const userData = await getFirstItem(sender);
 
-    if ((!userState || userState === "initial") && !userData) {
+    if (!userData) {
       await setUserState(sender, "awaiting_phone");
       await sendTextMessage(
         phoneNumberId,
@@ -251,6 +245,20 @@ app.post("/webhook", async (req, res) => {
       );
       return res.sendStatus(200);
     }
+
+     if (/^SRVZ-ORD-\d{9,10}$/i.test(messageText)) {
+      console.log("valid OrderId", messageText)
+      const orderData = await fetchOrdersByOrderId(messageText, userData);
+
+      if(orderData.length>1){
+        return await sendTextMessage(phoneNumberId, sender, "No order Found Please enter valid Order Id");
+      }
+
+      return await sendInteractiveList(phoneNumberId, sender, "Order Search", [
+        { title: `${messageText}`, rows: orderData },
+      ]);
+    }
+
 
     // ========================
     // Default Fallback
@@ -798,6 +806,27 @@ const fetchOrdersByStatus = async (status, sender, userData) => {
   try {
     const { data } = await api.get(
       `${BASE_URL_ORDERS}?orderStatus=${status}&technician=${userData.userId}&limit=${limit}`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${userData.token}`,
+        },
+      }
+    );
+    return formatOrdersList(data?.payload?.items || []);
+  } catch (error) {
+    console.error(
+      "❌ fetchOrdersByStatus error:",
+      error?.response?.data || error.message
+    );
+    return [];
+  }
+};
+
+const fetchOrdersByOrderId = async (orderID, userData) => {
+  try {
+    const { data } = await api.get(
+      `${BASE_URL_ORDERS}?orderId=${orderID}&technician=${userData.userId}&limit=10`,
       {
         headers: {
           "Content-Type": "application/json",
