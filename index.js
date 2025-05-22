@@ -428,7 +428,11 @@ const handleInteractiveMessage = async (
 
   const handleUpdateStatus = async () => {
     const statusCode = updateStatusMap[replyId.orderStatus];
-    const orderData = await fetchOrderDetails(replyId.id, sender, userData);
+    let orderData;
+    if(replyId.id){
+      orderData = await fetchOrderDetails(replyId.id, sender, userData);
+      console.log("mlmlml", orderData.orderStatus.currentStatus);
+    }
 
     switch (statusCode) {
       case "defective_pickup":
@@ -441,7 +445,7 @@ const handleInteractiveMessage = async (
         );
 
       case "parts_approval_pending":
-        if (orderData.orderStatus.currentStatus !== "technician_working") {
+        if (orderData.orderStatus.currentStatus !== "technician_working"||orderData.orderStatus.currentStatus !== "parts_approval_pending"||orderData.orderStatus.currentStatus !== "defective_pickup") {
           return await sendTextMessage(
             phoneNumberId,
             sender,
@@ -451,7 +455,7 @@ const handleInteractiveMessage = async (
         return await sendPartRequestForm(false, orderData, userData);
 
       case "another_parts_approval_pending":
-        if (orderData.orderStatus.currentStatus !== "technician_working") {
+        if (orderData.orderStatus.currentStatus !== "technician_working"||orderData.orderStatus.currentStatus !== "parts_approval_pending"||orderData.orderStatus.currentStatus !== "defective_pickup") {
           return await sendTextMessage(
             phoneNumberId,
             sender,
@@ -476,7 +480,10 @@ const handleInteractiveMessage = async (
 
   const handleOrderStatusMap = async () => {
     const mappedStatus = orderStatusMap[replyId.orderStatus];
-    const orderData = await fetchOrderDetails(replyId.id, sender, userData);
+     let orderData;
+    if(replyId.id){
+      orderData = await fetchOrderDetails(replyId.id, sender, userData);
+    }
 
     if (mappedStatus === "uploadDocument") {
       if (orderData.orderStatus.currentStatus !== "technician_working") {
@@ -643,7 +650,7 @@ const updateOrderStatus = async (
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: userData.token,
+          Authorization: `Bearer ${userData.token}`,
         },
       }
     );
@@ -791,7 +798,7 @@ const fetchOrdersByStatus = async (status, sender, userData) => {
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: userData.token,
+          Authorization: `Bearer ${userData.token}`,
         },
       }
     );
@@ -809,7 +816,7 @@ const fetchOrderDetails = async (id, sender, userData) => {
   const { data } = await api.get(`${BASE_URL_ORDERS}/${id}`, {
     headers: {
       "Content-Type": "application/json",
-      Authorization: userData.token,
+      Authorization: `Bearer ${userData.token}`,
     },
   });
   return data?.payload;
@@ -860,9 +867,7 @@ const handleOrderStatusOptions = async (phoneNumberId, sender, orderData) => {
       { status: "defectivePartPickup", title: "Pickup Defective" },
     ],
     defective_pickup: [
-      { status: "uploadDocument", title: "Upload Document" },
-      { status: "makePartRequest", title: "Make Part Request" },
-      { status: "makeMarkComplete", title: "Mark Work Complete" },
+      { status: "defectivePartPickup", title: "Pickup Defective" },
     ],
   };
 
