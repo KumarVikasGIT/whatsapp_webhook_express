@@ -432,6 +432,7 @@ const handleInteractiveMessage = async (
     if(replyId.id){
       orderData = await fetchOrderDetails(replyId.id, sender, userData);
       console.log("mlmlml", orderData.orderStatus.currentStatus);
+      console.log("mlmlml", statusCode);
     }
 
     switch (statusCode) {
@@ -446,23 +447,24 @@ const handleInteractiveMessage = async (
 
       case "parts_approval_pending":
         if (orderData.orderStatus.currentStatus !== "technician_working"||orderData.orderStatus.currentStatus !== "parts_approval_pending"||orderData.orderStatus.currentStatus !== "defective_pickup") {
-          return await sendTextMessage(
+        return await sendPartRequestForm(false, orderData, userData);
+        }
+         return await sendTextMessage(
             phoneNumberId,
             sender,
             "Status is Invalid"
           );
-        }
-        return await sendPartRequestForm(false, orderData, userData);
 
       case "another_parts_approval_pending":
         if (orderData.orderStatus.currentStatus !== "technician_working"||orderData.orderStatus.currentStatus !== "parts_approval_pending"||orderData.orderStatus.currentStatus !== "defective_pickup") {
-          return await sendTextMessage(
+           return await sendPartRequestForm(true, orderData, userData);
+
+        }
+        return await sendTextMessage(
             phoneNumberId,
             sender,
             "Status is Invalid"
           );
-        }
-        return await sendPartRequestForm(true, orderData, userData);
 
       default:
         const status = MyOrderStatus.fromStatusCode(statusCode);
@@ -617,8 +619,9 @@ const updateOrderStatus = async (
 
   if (
     status.statusCode === "technician_work_completed" &&
-    (orderData.orderStatus.currentStatus !== "technician_working" ||
+    !(orderData.orderStatus.currentStatus !== "technician_working" ||
       orderData.orderStatus.currentStatus !== "defective_pickup")
+
   ) {
     await sendTextMessage(phoneNumberId, sender, "Status is Not Valid");
     await handleOrderStatusOptions(phoneNumberId, sender, orderData);
@@ -867,7 +870,9 @@ const handleOrderStatusOptions = async (phoneNumberId, sender, orderData) => {
       { status: "defectivePartPickup", title: "Pickup Defective" },
     ],
     defective_pickup: [
-      { status: "defectivePartPickup", title: "Pickup Defective" },
+      { status: "uploadDocument", title: "Upload Document" },
+      { status: "makePartRequest", title: "Make Part Request" },
+      { status: "makeMarkComplete", title: "Mark Work Complete" },
     ],
   };
 
@@ -1475,7 +1480,7 @@ const isAllDocsValid = (
   if (isPartRequest) {
     validations.push({
       type: DOCUMENT_TYPES.DEFECTIVE_PICKUP,
-      minCount: partQuantity,
+      minCount: 1,
     });
   }
 
