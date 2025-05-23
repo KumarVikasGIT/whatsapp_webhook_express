@@ -250,13 +250,15 @@ app.post("/webhook", async (req, res) => {
       console.log("valid OrderId", messageText)
       const orderData = await fetchOrdersByOrderId(messageText, userData);
 
-      if(orderData.length>1){
-        return await sendTextMessage(phoneNumberId, sender, "No order Found Please enter valid Order Id");
+      if(orderData.length<1){
+        await sendTextMessage(phoneNumberId, sender, "No order Found Please enter valid Order Id");
+        return res.sendStatus(200);
       }
 
-      return await sendInteractiveList(phoneNumberId, sender, "Order Search", [
+      await sendInteractiveList(phoneNumberId, sender, "Order Search", [
         { title: `${messageText}`, rows: orderData },
       ]);
+      return res.sendStatus(200);
     }
 
 
@@ -311,9 +313,6 @@ async function getFirstItem(sender) {
       );
       return null;
     }
-
-    console.debug("[User] Found:", { id: _id, phone: loginPhone });
-
     // Refresh token
     const refreshResult = await refreshTechnician(token, rToken);
     const newToken = refreshResult?.payload?.token;
@@ -334,12 +333,40 @@ async function getFirstItem(sender) {
       return null;
     }
 
-    console.debug("[Update] User token updated successfully:", {
-      userId: _id,
-      updated: true,
-    });
-
     return updatedUser;
+  } catch (error) {
+    console.error("[getFirstItem Error]", {
+      message: error?.message,
+      url: error?.config?.url || "N/A",
+      stack: error?.stack,
+    });
+    return null;
+  }
+}
+
+async function getFirstItemTechnician(sender) {
+  if (!sender || typeof sender !== "string") {
+    console.error("[Validation] Invalid sender parameter:", sender);
+    return null;
+  }
+
+  try {
+    // Fetch user data
+    const userResponse = await api.get(
+      `${BASE_URL_WHATSAPP_LOGS}?loginPhone=${sender}`
+    );
+    const responseData = userResponse?.data;
+
+    if (
+      !responseData?.status ||
+      !Array.isArray(responseData.payload?.items) ||
+      responseData.payload.items.length === 0
+    ) {
+      console.warn("[API] Invalid response structure or empty user list");
+      return null;
+    }
+
+    return user = responseData.payload.items[0];
   } catch (error) {
     console.error("[getFirstItem Error]", {
       message: error?.message,
@@ -439,8 +466,6 @@ const handleInteractiveMessage = async (
     let orderData;
     if(replyId.id){
       orderData = await fetchOrderDetails(replyId.id, sender, userData);
-      console.log("mlmlml", orderData.orderStatus.currentStatus);
-      console.log("mlmlml", statusCode);
     }
 
     switch (statusCode) {
@@ -1192,6 +1217,63 @@ async function verifyOTP(otp, phone, sender) {
   }
 }
 
+const validateDocuments = (docs, validations) => {
+  if (!docs || docs.length === 0) return false;
+
+  const counts = Array(9).fill(0); // Size 9 to accommodate type 8
+  docs.forEach((doc) => counts[doc.type?.value ?? DOCUMENT_TYPES.DEFAULT]++);
+
+  return validations.every(({ type, minCount }) => counts[type] >= minCount);
+};
+
+const isAllDocsValid = (
+  docs,
+  isPrimeBookOrder,
+  isPartRequest,
+  partQuantity
+) => {
+  const validations = [
+    { type: DOCUMENT_TYPES.INVOICE, minCount: 1 },
+    { type: DOCUMENT_TYPES.SERIAL_NUMBER, minCount: 1 },
+    { type: DOCUMENT_TYPES.DEVICE_PHOTO, minCount: 1 },
+  ];
+
+  if (isPrimeBookOrder) {
+    validations.push({ type: DOCUMENT_TYPES.SELFIE, minCount: 1 });
+  }
+
+  if (isPartRequest) {
+    validations.push({
+      type: DOCUMENT_TYPES.DEFECTIVE_PICKUP,
+      minCount: 1,
+    });
+  }
+
+  return validateDocuments(docs, validations);
+};
+
+const isCorpDocsValid = (docs, isAc, isPartRequest, partQuantity) => {
+  return validateDocuments(docs, [
+    { type: DOCUMENT_TYPES.SERIAL_NUMBER, minCount: 1 },
+    { type: DOCUMENT_TYPES.DEVICE_PHOTO, minCount: 1 },
+    {
+      type: DOCUMENT_TYPES.OUTER_SERIAL_NUMBER,
+      minCount: 1,
+      condition: isAc,
+    },
+    {
+      type: DOCUMENT_TYPES.DEVICE_PHOTO,
+      minCount: 1,
+      condition: isAc,
+    },
+    {
+      type: DOCUMENT_TYPES.DEFECTIVE_PART,
+      minCount: partQuantity,
+      condition: isPartRequest,
+    },
+  ]);
+};
+
 app.post("/notify-document-upload", cors(), async (req, res) => {
   try {
     const { id, orderID, sender, status, phoneNumberId } = req.body;
@@ -1481,59 +1563,84 @@ app.post("/notify-defective-part-update", cors(), async (req, res) => {
   }
 });
 
-const validateDocuments = (docs, validations) => {
-  if (!docs || docs.length === 0) return false;
+app.post("/notify-order-assigned", cors(), async (req, res) => {
+  try {
+    const { technicianPhone, orderId, phoneNumberId } = req.body;
 
-  const counts = Array(9).fill(0); // Size 9 to accommodate type 8
-  docs.forEach((doc) => counts[doc.type?.value ?? DOCUMENT_TYPES.DEFAULT]++);
+    // Validate presence of required fields
+    const missingFields = [];
+    if (!technicianPhone) missingFields.push("technicianPhone");
+    if (!orderId) missingFields.push("orderID");
+    if (!phoneNumberId) missingFields.push("orderID");
 
-  return validations.every(({ type, minCount }) => counts[type] >= minCount);
-};
+    if (missingFields.length > 0) {
+      const errorMsg = `⚠️ Missing required fields: ${missingFields.join(
+        ", "
+      )}`;
+      console.warn(errorMsg);
+      return res.status(400).json({ status: false, message: errorMsg });
+    }
 
-const isAllDocsValid = (
-  docs,
-  isPrimeBookOrder,
-  isPartRequest,
-  partQuantity
-) => {
-  const validations = [
-    { type: DOCUMENT_TYPES.INVOICE, minCount: 1 },
-    { type: DOCUMENT_TYPES.SERIAL_NUMBER, minCount: 1 },
-    { type: DOCUMENT_TYPES.DEVICE_PHOTO, minCount: 1 },
-  ];
+        let userData = await getFirstItemTechnician(technicianPhone);
+        // 1. Acknowledge successful upload
 
-  if (isPrimeBookOrder) {
-    validations.push({ type: DOCUMENT_TYPES.SELFIE, minCount: 1 });
+        if(userData){
+ await sendTextMessage(
+          phoneNumberId,
+          userData.userPhoneId,
+          `Hi, ${userData.userName}, New order has been assigned to you: ${orderId}.`
+        );
+        return res.status(200).json({ status: true, message: "Notification sent to technician" });
+        }else{
+        return res.status(200).json({ status: false, message: "Technicina not found or not logged in." });
+        }
+      
+
+  } catch (error) {
+    console.error("🔥 Unexpected error in /notify-technician-order-assigned:", error);
+    return res
+      .status(500)
+      .json({ status: false, message: "Internal Server Error" });
   }
+});
 
-  if (isPartRequest) {
-    validations.push({
-      type: DOCUMENT_TYPES.DEFECTIVE_PICKUP,
-      minCount: 1,
-    });
+app.post("/notify-part-request-update", cors(), async (req, res) => {
+  try {
+    const { technicianPhone, orderId, phoneNumberId } = req.body;
+
+    // Validate presence of required fields
+    const missingFields = [];
+    if (!technicianPhone) missingFields.push("technicianPhone");
+    if (!orderId) missingFields.push("orderID");
+    if (!phoneNumberId) missingFields.push("orderID");
+
+    if (missingFields.length > 0) {
+      const errorMsg = `⚠️ Missing required fields: ${missingFields.join(
+        ", "
+      )}`;
+      console.warn(errorMsg);
+      return res.status(400).json({ status: false, message: errorMsg });
+    }
+
+        let userData = await getFirstItemTechnician(technicianPhone);
+        // 1. Acknowledge successful upload
+
+        if(userData){
+ await sendTextMessage(
+          phoneNumberId,
+          userData.userPhoneId,
+          `Hi, ${userData.userName}, Part Request has been updated for your OrderId: ${orderId}.`
+        );
+        return res.status(200).json({ status: true, message: "Notification sent to technician" });
+        }else{
+        return res.status(200).json({ status: false, message: "Technicina not found or not logged in." });
+        }
+      
+
+  } catch (error) {
+    console.error("🔥 Unexpected error in /notify-technician-order-assigned:", error);
+    return res
+      .status(500)
+      .json({ status: false, message: "Internal Server Error" });
   }
-
-  return validateDocuments(docs, validations);
-};
-
-const isCorpDocsValid = (docs, isAc, isPartRequest, partQuantity) => {
-  return validateDocuments(docs, [
-    { type: DOCUMENT_TYPES.SERIAL_NUMBER, minCount: 1 },
-    { type: DOCUMENT_TYPES.DEVICE_PHOTO, minCount: 1 },
-    {
-      type: DOCUMENT_TYPES.OUTER_SERIAL_NUMBER,
-      minCount: 1,
-      condition: isAc,
-    },
-    {
-      type: DOCUMENT_TYPES.DEVICE_PHOTO,
-      minCount: 1,
-      condition: isAc,
-    },
-    {
-      type: DOCUMENT_TYPES.DEFECTIVE_PART,
-      minCount: partQuantity,
-      condition: isPartRequest,
-    },
-  ]);
-};
+});
