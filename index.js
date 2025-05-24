@@ -5,8 +5,10 @@ const axios = require("axios");
 const { Status, MyOrderStatus } = require("./order_status");
 const { DocType, RequiredDocumentData } = require("./doc_type");
 const { DOCUMENT_TYPES } = require("./doc_types");
+const { JWT_TOKEN } = require("./generate-token");
 const path = require("path");
 const fs = require("fs");
+const jwt = require('jsonwebtoken');
 require("dotenv").config();
 
 const userStore = {}; // Replace with Redis or DB in production
@@ -466,6 +468,13 @@ const handleInteractiveMessage = async (
     let orderData;
     if(replyId.id){
       orderData = await fetchOrderDetails(replyId.id, sender, userData);
+      console.log("orderData", orderData.orderStatus.currentStatus);
+      console.log("replyId", statusCode);
+
+    if (statusCode === orderData.orderStatus.currentStatus) {
+        await sendTextMessage(phoneNumberId, sender, "Status is Invalid");
+       return await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+      }
     }
 
     switch (statusCode) {
@@ -479,25 +488,21 @@ const handleInteractiveMessage = async (
         );
 
       case "parts_approval_pending":
-        if (orderData.orderStatus.currentStatus !== "technician_working"||orderData.orderStatus.currentStatus !== "parts_approval_pending"||orderData.orderStatus.currentStatus !== "defective_pickup") {
-        return await sendPartRequestForm(false, orderData, userData);
-        }
-         return await sendTextMessage(
-            phoneNumberId,
-            sender,
-            "Status is Invalid"
-          );
+        if (orderData.orderStatus.currentStatus === "technician_working"||orderData.orderStatus.currentStatus === "parts_approval_pending"||orderData.orderStatus.currentStatus === "defective_pickup") {
+                return await sendPartRequestForm(false, orderData, userData);
 
+        }
+        await sendTextMessage(phoneNumberId, sender, "Status is Invalid");
+        return await handleOrderStatusOptions(phoneNumberId, sender, orderData);
+        
+        
       case "another_parts_approval_pending":
         if (orderData.orderStatus.currentStatus !== "technician_working"||orderData.orderStatus.currentStatus !== "parts_approval_pending"||orderData.orderStatus.currentStatus !== "defective_pickup") {
            return await sendPartRequestForm(true, orderData, userData);
 
         }
-        return await sendTextMessage(
-            phoneNumberId,
-            sender,
-            "Status is Invalid"
-          );
+        await sendTextMessage(phoneNumberId, sender, "Status is Invalid");
+        return await handleOrderStatusOptions(phoneNumberId, sender, orderData);
 
       default:
         const status = MyOrderStatus.fromStatusCode(statusCode);
@@ -990,7 +995,7 @@ const sendInteractiveOptions = (phoneNumberId, to, userData) =>
             userData?.userName ?? ""
           }, welcome to SERVIZ Technician Bot.`,
         },
-        body: { text: "Please choose an option." },
+        body: { text: "Please choose an option, Or Enter Order Id to search order Ex. SRVZ-ORD-123XXXXXXX." },
         action: {
           button: "Get Orders",
           sections: [
@@ -1592,7 +1597,7 @@ app.post("/notify-order-assigned", cors(), async (req, res) => {
         );
         return res.status(200).json({ status: true, message: "Notification sent to technician" });
         }else{
-        return res.status(200).json({ status: false, message: "Technicina not found or not logged in." });
+        return res.status(200).json({ status: false, message: "Technician not found or not logged in." });
         }
       
 
@@ -1633,7 +1638,7 @@ app.post("/notify-part-request-update", cors(), async (req, res) => {
         );
         return res.status(200).json({ status: true, message: "Notification sent to technician" });
         }else{
-        return res.status(200).json({ status: false, message: "Technicina not found or not logged in." });
+        return res.status(200).json({ status: false, message: "Technician not found or not logged in." });
         }
       
 
