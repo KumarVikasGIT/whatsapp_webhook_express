@@ -12,6 +12,8 @@ if (!process.env.JWT_SECRET) {
   throw new Error('JWT_SECRET is not defined in environment variables');
 }
 
-export const JWT_TOKEN = jwt.sign(payload, process.env.JWT_SECRET, {
+export var JWT_TOKEN = jwt.sign({
+  app: 'WhatsApp-Bot',
+}, process.env.JWT_SECRET, {
   expiresIn: '5m',
 });

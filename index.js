@@ -134,7 +134,7 @@ app.post("/webhook", async (req, res) => {
     const userState = await getUserState(sender);
     const userData = await getFirstItem(sender);
 
-    if (!userData) {
+    if ((!userState || userState === 'initial')&&!userData) {
       await setUserState(sender, "awaiting_phone");
       await sendTextMessage(
         phoneNumberId,
@@ -290,9 +290,15 @@ async function getFirstItem(sender) {
   }
 
   try {
+    var jwt_token = jwt.sign({
+      app: 'WhatsApp-Bot',
+    }, process.env.JWT_SECRET, {
+      expiresIn: '5m',
+    });
     // Fetch user data
     const userResponse = await api.get(
-      `${BASE_URL_WHATSAPP_LOGS}?userPhoneId=${sender}`
+      `${BASE_URL_WHATSAPP_LOGS}?userPhoneId=${sender}`,
+      {headers: { Authorization: `Bearer ${jwt_token}`, subdomain : "WhatsApp" }}
     );
     const responseData = userResponse?.data;
 
@@ -327,7 +333,8 @@ async function getFirstItem(sender) {
     // Update user token
     const updateResponse = await api.put(`${BASE_URL_WHATSAPP_LOGS}/${_id}`, {
       token: newToken,
-    });
+    },
+      {headers: { Authorization: `Bearer ${jwt_token}`,subdomain : "WhatsApp" }});
     const updatedUser = updateResponse?.data?.payload;
 
     if (!updatedUser) {
@@ -353,9 +360,15 @@ async function getFirstItemTechnician(sender) {
   }
 
   try {
+      var jwt_token = jwt.sign({
+      app: 'WhatsApp-Bot',
+    }, process.env.JWT_SECRET, {
+      expiresIn: '5m',
+    });
     // Fetch user data
     const userResponse = await api.get(
-      `${BASE_URL_WHATSAPP_LOGS}?loginPhone=${sender}`
+      `${BASE_URL_WHATSAPP_LOGS}?loginPhone=${sender}`,
+      {headers: { Authorization: `Bearer ${jwt_token}`,subdomain : "WhatsApp" }}
     );
     const responseData = userResponse?.data;
 
@@ -1201,7 +1214,8 @@ async function verifyOTP(otp, phone, sender) {
         token: data.payload.token,
         rToken: data.payload.refreshToken,
         loginPhone: phone,
-      });
+      }
+      ,{headers: { Authorization: `Bearer ${data.payload.token}` }});
 
       return data.status;
     }
@@ -1213,7 +1227,7 @@ async function verifyOTP(otp, phone, sender) {
       token: data.payload.token,
       rToken: data.payload.refreshToken,
       loginPhone: phone,
-    });
+    },{headers: { Authorization: `Bearer ${data.payload.token}` }});
 
     return data.status;
   } catch (error) {
